@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="An independent digital reconstruction inspired by the CSIS Taiwan Operational Wargame.">
+  <title>Open TOW — Taiwan Operational Wargame</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="eyebrow">OPEN-SOURCE ANALYTIC WARGAMING</span>
+      <h1>Open TOW <span>/ Taiwan Operational Wargame</span></h1>
+    </div>
+    <div class="header-actions">
+      <label>Play as
+        <select id="side-select"><option>BLUE</option><option>RED</option></select>
+      </label>
+      <button class="button ghost" id="new-game">New scenario</button>
+      <button class="button primary" id="agent-turn">Run agent turn</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="status-strip" aria-label="Campaign status">
+      <article><span>Campaign</span><strong id="turn-value">Turn 1 / 8</strong><small>Each turn = 3.5 days</small></article>
+      <article><span>Taiwan control</span><strong id="control-value">0%</strong><div class="meter"><i id="control-meter"></i></div></article>
+      <article><span>RED lodgment</span><strong id="lodgment-value">0.0</strong><small>Ground strength ashore</small></article>
+      <article><span>Taiwan defense</span><strong id="defense-value">20.0</strong><small>Remaining combat power</small></article>
+      <article><span>Long-range munitions</span><strong id="munition-value">70 / 110</strong><small>BLUE / RED</small></article>
+      <article><span>Assessment</span><strong id="status-value" class="status-live">ACTIVE</strong><small id="winner-value">Occupation denied so far</small></article>
+    </section>
+
+    <section class="workspace">
+      <div class="map-panel panel">
+        <div class="panel-heading">
+          <div><span class="eyebrow">OPERATIONAL PICTURE</span><h2>Western Pacific</h2></div>
+          <div class="legend"><span><i class="dot blue"></i> BLUE</span><span><i class="dot red"></i> RED</span><span><i class="dot contested"></i> Contested</span></div>
+        </div>
+        <svg id="map" viewBox="420 20 780 590" role="img" aria-label="Abstract Western Pacific operational map"></svg>
+        <div class="map-note">Abstract topology; positions do not represent tactical locations. Select a formation below for details.</div>
+      </div>
+
+      <aside class="orders-panel panel">
+        <div class="panel-heading"><div><span class="eyebrow">COMMAND CELL</span><h2>Issue orders</h2></div><span id="order-count" class="pill">0 queued</span></div>
+        <p class="hint">Orders cover the entire 3.5-day turn. The opposing doctrine agent acts simultaneously.</p>
+        <form id="order-form">
+          <label>Action
+            <select id="action-type">
+              <option value="missile_strike">Missile strike</option>
+              <option value="air_mission">Air mission</option>
+              <option value="rebase">Rebase aircraft</option>
+              <option value="naval_move">Move surface group</option>
+              <option value="submarine_patrol">Submarine patrol</option>
+              <option value="amphibious_lift">Amphibious lift</option>
+              <option value="ground_attack">Ground operations</option>
+            </select>
+          </label>
+          <div id="dynamic-fields"></div>
+          <button class="button ghost full" type="submit">Queue order</button>
+        </form>
+        <div id="orders-list" class="orders-list"><div class="empty">No orders queued.</div></div>
+        <div class="order-actions">
+          <button class="button subtle" id="clear-orders">Clear</button>
+          <button class="button primary grow" id="resolve-turn">Resolve turn</button>
+        </div>
+        <div id="error-box" class="error" hidden></div>
+      </aside>
+    </section>
+
+    <section class="lower-grid">
+      <div class="panel formations-panel">
+        <div class="panel-heading"><div><span class="eyebrow">FORCE STATUS</span><h2>Formations</h2></div><div class="tabs"><button class="tab active" data-filter="ALL">All</button><button class="tab" data-filter="BLUE">Blue</button><button class="tab" data-filter="RED">Red</button></div></div>
+        <div id="formations" class="formations"></div>
+      </div>
+      <div class="panel log-panel">
+        <div class="panel-heading"><div><span class="eyebrow">AUDIT TRAIL</span><h2>Adjudication log</h2></div><button class="button subtle" id="autoplay">Autoplay to end</button></div>
+        <div id="event-log" class="event-log"></div>
+      </div>
+    </section>
+
+    <section class="methodology panel">
+      <div><span class="eyebrow">MODEL CARD</span><h2>What this is—and is not</h2></div>
+      <p>This is an independent educational reconstruction inspired by the public mechanics described in the CSIS report <em>The First Battle of the Next War</em>. The 3.5-day turns, aggregate formations, operational maps, sequencing, mission categories, amphibious sustainment, and sensitivity-analysis approach follow the published design.</p>
+      <p>Unit strengths, probabilities, map topology, doctrine agents, and victory thresholds are transparent synthetic reconstructions. This is not official CSIS or U.S. Government software, is not endorsed by either, and is not a forecast.</p>
+      <a href="https://www.csis.org/analysis/first-battle-next-war-wargaming-chinese-invasion-taiwan" target="_blank" rel="noreferrer">Read the primary CSIS study ↗</a>
+    </section>
+  </main>
+
+  <footer><span>OPEN TOW v0.1.0</span><span>Seeded · Auditable · Agent-ready</span><span id="seed-value">Seed 7</span></footer>
+  <script src="/app.js" defer></script>
+</body>
+</html>
+

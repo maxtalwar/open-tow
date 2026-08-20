@@ -1,0 +1,95 @@
+{
+  "id": "open-tow-csis-inspired-base-2026-v1",
+  "name": "Taiwan Operational Wargame — Open Base Case",
+  "subtitle": "Independent digital reconstruction inspired by the CSIS Taiwan Operational Wargame",
+  "version": "0.1.0",
+  "turn_days": 3.5,
+  "max_turns": 8,
+  "scope": "Aggregate operational air, maritime, amphibious, and ground campaigning around Taiwan.",
+  "disclaimer": "This is an independent educational implementation. It is not official CSIS, U.S. Government, or Department of Defense software; it is not endorsed by those organizations; and its synthetic parameters are not predictions or operational estimates.",
+  "design_basis": {
+    "primary_source": {
+      "title": "The First Battle of the Next War: Wargaming a Chinese Invasion of Taiwan",
+      "authors": "Mark F. Cancian, Matthew Cancian, and Eric Heginbotham",
+      "publisher": "Center for Strategic and International Studies",
+      "published": "2023-01-09",
+      "url": "https://www.csis.org/analysis/first-battle-next-war-wargaming-chinese-invasion-taiwan"
+    },
+    "faithfully_adapted": [
+      "3.5-day operational turns",
+      "Western Pacific operational hex abstraction",
+      "Aircraft squadron and submarine squadron aggregation",
+      "Missile-first turn resolution",
+      "Air superiority, strike, ground support, rebasing, amphibious lift, sustainment, and ground combat interactions",
+      "Scenario iteration with deterministic random seeds"
+    ],
+    "reconstructed_or_synthetic": [
+      "Unit quantities and strength values",
+      "Combat probabilities and loss functions",
+      "Map topology and base capacities",
+      "Victory thresholds",
+      "Doctrine-agent policies"
+    ]
+  },
+  "regions": {
+    "japan": {"name": "Japan & Ryukyus", "x": 760, "y": 100, "adjacent": ["east_china_sea", "philippine_sea"]},
+    "east_china_sea": {"name": "East China Sea", "x": 630, "y": 185, "adjacent": ["japan", "taiwan_strait", "philippine_sea"]},
+    "taiwan_strait": {"name": "Taiwan Strait", "x": 610, "y": 330, "adjacent": ["east_china_sea", "taiwan", "south_china_sea", "philippine_sea"]},
+    "taiwan": {"name": "Taiwan", "x": 725, "y": 335, "adjacent": ["taiwan_strait", "philippine_sea", "luzon"]},
+    "philippine_sea": {"name": "Philippine Sea", "x": 875, "y": 315, "adjacent": ["japan", "east_china_sea", "taiwan_strait", "taiwan", "luzon", "guam"]},
+    "south_china_sea": {"name": "South China Sea", "x": 560, "y": 505, "adjacent": ["taiwan_strait", "luzon"]},
+    "luzon": {"name": "Luzon", "x": 760, "y": 520, "adjacent": ["taiwan", "philippine_sea", "south_china_sea"]},
+    "guam": {"name": "Guam", "x": 1080, "y": 360, "adjacent": ["philippine_sea"]}
+  },
+  "initial_state": {
+    "political": {
+      "japan_status": "ENTERS_IF_ATTACKED",
+      "philippines_access": true,
+      "mainland_strikes_allowed": true,
+      "strategic_nuclear_use": false
+    },
+    "metrics": {
+      "taiwan_control": 0.0,
+      "taiwan_defense": 20.0,
+      "taiwan_coastal_defense": 12.0,
+      "red_lodgment": 0.0,
+      "civilian_harm_index": 0.0
+    },
+    "munitions": {
+      "BLUE": {"long_range": 70.0, "anti_ship": 55.0, "air_defense": 75.0},
+      "RED": {"long_range": 110.0, "anti_ship": 85.0, "air_defense": 95.0}
+    },
+    "bases": [
+      {"id": "red_fujian", "side": "RED", "name": "Fujian Air Complex", "region": "taiwan_strait", "capacity": 12, "hardening": 2.0, "sam": 4.0},
+      {"id": "red_east", "side": "RED", "name": "Eastern Theater Air Complex", "region": "east_china_sea", "capacity": 10, "hardening": 2.5, "sam": 4.0},
+      {"id": "blue_kadena", "side": "BLUE", "name": "Kadena Air Base", "region": "japan", "capacity": 8, "hardening": 2.0, "sam": 2.5},
+      {"id": "blue_hualien", "side": "BLUE", "name": "Hualien Underground Complex", "region": "taiwan", "capacity": 3, "hardening": 5.0, "sam": 3.0, "damage": 0.45},
+      {"id": "blue_luzon", "side": "BLUE", "name": "Northern Luzon Dispersal", "region": "luzon", "capacity": 5, "hardening": 1.0, "sam": 1.5},
+      {"id": "blue_guam", "side": "BLUE", "name": "Andersen Air Base", "region": "guam", "capacity": 10, "hardening": 1.5, "sam": 3.0}
+    ],
+    "units": [
+      {"id": "red_air_5g_1", "side": "RED", "name": "RED 5th-Gen Air Wing", "domain": "air", "kind": "fighter_5g", "region": "east_china_sea", "strength": 4.0, "max_strength": 4.0, "base_id": "red_east"},
+      {"id": "red_air_45g_1", "side": "RED", "name": "RED 4.5-Gen Air Wing", "domain": "air", "kind": "fighter_45g", "region": "taiwan_strait", "strength": 6.0, "max_strength": 6.0, "base_id": "red_fujian"},
+      {"id": "red_air_4g_1", "side": "RED", "name": "RED 4th-Gen Air Wing", "domain": "air", "kind": "fighter_4g", "region": "taiwan_strait", "strength": 5.0, "max_strength": 5.0, "base_id": "red_fujian"},
+      {"id": "red_bomber_1", "side": "RED", "name": "RED Bomber Wing", "domain": "air", "kind": "bomber", "region": "east_china_sea", "strength": 2.0, "max_strength": 2.0, "base_id": "red_east"},
+      {"id": "red_sag_1", "side": "RED", "name": "RED Surface Action Group", "domain": "naval", "kind": "surface", "region": "east_china_sea", "strength": 6.0, "max_strength": 6.0},
+      {"id": "red_carrier_1", "side": "RED", "name": "RED Carrier Group", "domain": "naval", "kind": "carrier", "region": "east_china_sea", "strength": 5.0, "max_strength": 5.0},
+      {"id": "red_amphib_1", "side": "RED", "name": "RED Amphibious Group Alpha", "domain": "naval", "kind": "amphibious", "region": "taiwan_strait", "strength": 6.0, "max_strength": 6.0, "capacity": 10.0},
+      {"id": "red_amphib_2", "side": "RED", "name": "RED Amphibious Group Bravo", "domain": "naval", "kind": "amphibious", "region": "taiwan_strait", "strength": 5.0, "max_strength": 5.0, "capacity": 8.0},
+      {"id": "red_sub_1", "side": "RED", "name": "RED Nuclear Submarine Squadron", "domain": "submarine", "kind": "nuclear_submarine", "region": "east_china_sea", "strength": 4.0, "max_strength": 4.0, "hidden": true},
+      {"id": "red_sub_2", "side": "RED", "name": "RED Diesel Submarine Squadron", "domain": "submarine", "kind": "diesel_submarine", "region": "taiwan_strait", "strength": 4.0, "max_strength": 4.0, "hidden": true},
+
+      {"id": "blue_air_5g_1", "side": "BLUE", "name": "BLUE 5th-Gen Air Wing", "domain": "air", "kind": "fighter_5g", "region": "japan", "strength": 4.0, "max_strength": 4.0, "base_id": "blue_kadena"},
+      {"id": "blue_air_45g_1", "side": "BLUE", "name": "BLUE 4.5-Gen Air Wing", "domain": "air", "kind": "fighter_45g", "region": "japan", "strength": 4.0, "max_strength": 4.0, "base_id": "blue_kadena"},
+      {"id": "blue_taiwan_air", "side": "BLUE", "name": "Taiwan Surviving Air Wing", "domain": "air", "kind": "fighter_45g", "region": "taiwan", "strength": 2.0, "max_strength": 3.0, "readiness": 0.45, "base_id": "blue_hualien"},
+      {"id": "blue_bomber_1", "side": "BLUE", "name": "BLUE Bomber Wing", "domain": "air", "kind": "bomber", "region": "guam", "strength": 3.0, "max_strength": 3.0, "base_id": "blue_guam"},
+      {"id": "blue_air_5g_2", "side": "BLUE", "name": "BLUE Dispersed Air Wing", "domain": "air", "kind": "fighter_5g", "region": "luzon", "strength": 3.0, "max_strength": 3.0, "base_id": "blue_luzon"},
+      {"id": "blue_carrier_1", "side": "BLUE", "name": "BLUE Carrier Group", "domain": "naval", "kind": "carrier", "region": "philippine_sea", "strength": 6.0, "max_strength": 6.0},
+      {"id": "blue_sag_1", "side": "BLUE", "name": "BLUE Surface Action Group", "domain": "naval", "kind": "surface", "region": "guam", "strength": 5.0, "max_strength": 5.0},
+      {"id": "blue_japan_sag", "side": "BLUE", "name": "Japanese Surface Group", "domain": "naval", "kind": "surface", "region": "japan", "strength": 4.0, "max_strength": 4.0},
+      {"id": "blue_sub_1", "side": "BLUE", "name": "BLUE Attack Submarine Squadron Alpha", "domain": "submarine", "kind": "nuclear_submarine", "region": "philippine_sea", "strength": 4.0, "max_strength": 4.0, "hidden": true},
+      {"id": "blue_sub_2", "side": "BLUE", "name": "BLUE Attack Submarine Squadron Bravo", "domain": "submarine", "kind": "nuclear_submarine", "region": "taiwan_strait", "strength": 4.0, "max_strength": 4.0, "hidden": true}
+    ]
+  }
+}
+

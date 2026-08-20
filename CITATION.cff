@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use Open TOW, cite this software and the underlying CSIS study."
+title: "Open TOW"
+type: software
+version: 0.1.0
+date-released: 2026-08-19
+license: MIT
+abstract: "An independent digital reconstruction inspired by the CSIS Taiwan Operational Wargame."
+references:
+  - type: report
+    title: "The First Battle of the Next War: Wargaming a Chinese Invasion of Taiwan"
+    authors:
+      - family-names: Cancian
+        given-names: Mark F.
+      - family-names: Cancian
+        given-names: Matthew
+      - family-names: Heginbotham
+        given-names: Eric
+    year: 2023
+    publisher:
+      name: "Center for Strategic and International Studies"
+    url: "https://www.csis.org/analysis/first-battle-next-war-wargaming-chinese-invasion-taiwan"
+
+
