@@ -2,14 +2,14 @@
 
 **Open TOW** is an independent, open-source digital reconstruction inspired by the public design of the CSIS Taiwan Operational Wargame described in *[The First Battle of the Next War](https://www.csis.org/analysis/first-battle-next-war-wargaming-chinese-invasion-taiwan)*.
 
-It is a browser-playable operational campaign simulation with a deterministic Python engine, side-specific observations, doctrine-agent baselines, a machine-readable order API, replayable event logs, and seeded batch simulations.
+It is a browser-playable operational campaign simulation with a deterministic Python engine.
 
 > [!IMPORTANT]
-> This project is not official CSIS, U.S. Government, etc software and isn't endorsed by those organizations. This is an educational project I built build what I hope will be the next generation of wargames. 
+> This project is not official CSIS, U.S. Government, etc software and isn't endorsed by those organizations. This is an educational project I built to improve a flaw I see in existing wargames. 
 
 ## Why this project exists
 
-Professional wargames are often difficult to reproduce because the assumptions they use are scattered, adjudication is partly manual, and the resulting data can't easily be used to make simulations or do data analytics at scale. I think this is a major flaw, and I believe codifying the rules in software will fix this. It will also enable really cool experiments like using LLMs as actors in the wargame and potentially even training deep learning models to play them. 
+Professional wargames are often difficult to reproduce because the assumptions they use are scattered, adjudication is partly manual, and the resulting data can't easily be used to make simulations or do data analytics at scale. I think this is a major flaw that can be fixed by codifying the rules in software will fix this. It will also enable really cool experiments like using LLMs as actors in the wargame and  even training deep learning models to command troops. 
 
 Over time I will scale this to be highly realistic and a potential model for wargames, but for now it is in beta. 
 
