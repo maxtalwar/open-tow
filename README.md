@@ -5,32 +5,28 @@
 It is a browser-playable operational campaign simulation with a deterministic Python engine, side-specific observations, doctrine-agent baselines, a machine-readable order API, replayable event logs, and seeded batch simulations.
 
 > [!IMPORTANT]
-> Open TOW is not official CSIS, U.S. Government, or Department of Defense software and is not endorsed by those organizations. Published mechanics are cited; missing quantities and adjudication functions are transparent synthetic reconstructions. This is an educational research platform, not a forecast or an operational planning tool.
+> This project is not official CSIS, U.S. Government, etc software and isn't endorsed by those organizations. This is an educational project I built build what I hope will be the next generation of wargames. 
 
 ## Why this project exists
 
-Professional wargames are often difficult to reproduce: assumptions are scattered, adjudication is partly manual, and the resulting data cannot easily be consumed by software agents. Open TOW tests a different approach:
+Professional wargames are often difficult to reproduce because the assumptions they use are scattered, adjudication is partly manual, and the resulting data can't easily be used to make simulations or do data analytics at scale. I think this is a major flaw, and I believe codifying the rules in software will fix this. It will also enable really cool experiments like using LLMs as actors in the wargame and potentially even training deep learning models to play them. 
 
-- keep the authoritative game engine separate from human and AI players;
-- make every order and adjudication outcome auditable;
-- expose exactly the same legal action surface to people, LLMs, and scripted agents;
-- preserve uncertainty with seeds and configurable scenario parameters; and
-- document which mechanics are sourced, inferred, or original.
+Over time I will scale this to be highly realistic and a potential model for wargames, but for now it is in beta. 
 
 ## Current MVP
 
-- 3.5-day operational turns across an abstract Western Pacific map
-- BLUE and RED air, surface, submarine, amphibious, and base formations
+You play as either Blue, representing coalition forces, or Red, representing PLA forces. The opponent is limited at present to an agent with preset rules, but soon there will be many adversary modes, including agent-vs-agent conflicts. 
+
+Here are the important features about the simulation's behavior:
+- Each operational turn represents 3.5-days across an abstract Western Pacific map
+- It contains air, surface, submarine, amphibious, and base formations
 - missile-first phase sequencing
 - air superiority, base strike, maritime strike, ground support, and rebasing
 - surface movement, surface engagements, submarine interdiction, and ASW abstraction
-- amphibious lift constrained by shipping losses and sustainment demand
-- aggregate ground combat and territorial-control objectives
-- partial observations for hidden opposing submarine strength
+- Red (PLA) amphibious lift is constrained by shipping losses and sustainment demand
+- ground combat and territorial-control objectives determine victory
 - seeded deterministic adjudication and complete order/event history
 - doctrine agents for both sides
-- HTTP/JSON agent interface and browser command interface
-- zero runtime dependencies beyond Python 3.11+
 
 ## Run locally
 
@@ -53,7 +49,7 @@ Run the test suite:
 python -m unittest discover -s tests -v
 ```
 
-No package installation is required from a source checkout. An editable install is optional:
+No package installation is required from a source checkout, there are zero runtime dependencies beyond Python 3.11+. An editable install is optional:
 
 ```bash
 python -m pip install -e .
@@ -98,7 +94,7 @@ The server validates ownership, target legality, domain constraints, adjacency, 
 
 ## Design provenance
 
-The implementation distinguishes three categories:
+My implementation comes in three categories, because while parts of it are based off of the original CSIS wargame, there is not enough publicly available information to make an exact replica. 
 
 | Category | Examples |
 |---|---|
@@ -122,7 +118,7 @@ data/scenarios/*.json
                      LLM/RL adapters
 ```
 
-The engine never uses an LLM to determine combat outcomes. Language models can reason, negotiate, and issue orders, but the transparent rules engine remains authoritative.
+The engine never uses an LLM to determine combat outcomes. Language models can reason, negotiate, and issue orders, but the transparent rules engine remains authoritative. That said, in the future I will implement LLMs (as well as custom-trained models) to act as agents playing the game. 
 
 ## Repository map
 
