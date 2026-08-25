@@ -9,7 +9,7 @@ It is a browser-playable operational campaign simulation with a deterministic Py
 
 ## Why this project exists
 
-Professional wargames are often difficult to reproduce because the assumptions they use are scattered, adjudication is partly manual, and the resulting data can't easily be used to make simulations or do data analytics at scale. I think this is a major flaw that can be fixed by codifying the rules in software will fix this. It will also enable really cool experiments like using LLMs as actors in the wargame and  even training deep learning models to command troops. 
+Professional wargames are often difficult to reproduce because the assumptions they use are scattered, adjudication is partly manual, and the resulting data can't easily be used to make simulations or do data analytics at scale. I think this is a major flaw that can be fixed by codifying the rules in software. It will also enable really cool experiments like using LLMs as actors in the wargame and  even training deep learning models to command troops. 
 
 Over time I will scale this to be highly realistic and a potential model for wargames, but for now it is in beta. 
 
