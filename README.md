@@ -1,15 +1,13 @@
 # Open TOW
 
-**Open TOW** is an independent, open-source digital reconstruction inspired by the public design of the CSIS Taiwan Operational Wargame described in *[The First Battle of the Next War](https://www.csis.org/analysis/first-battle-next-war-wargaming-chinese-invasion-taiwan)*.
-
-It is a browser-playable operational campaign simulation with a deterministic Python engine.
+**Open TOW** is an open-source digital wargame inspired by the CSIS Taiwan Operational Wargame described here: *[The First Battle of the Next War](https://www.csis.org/analysis/first-battle-next-war-wargaming-chinese-invasion-taiwan)*.
 
 > [!IMPORTANT]
-> This project is not official CSIS, U.S. Government, etc software and isn't endorsed by those organizations. This is an educational project I built to improve a flaw I see in existing wargames. 
+> This project is not official CSIS, U.S. Government, etc software and isn't endorsed by those organizations. This is an educational project I built at Georgetown to improve a flaw I see in existing wargames. 
 
 ## Why this project exists
 
-Professional wargames are often difficult to reproduce because the assumptions they use are scattered, adjudication is partly manual, and the resulting data can't easily be used to make simulations or do data analytics at scale. I think this is a major flaw that can be fixed by codifying the rules in software. It will also enable really cool experiments like using LLMs as actors in the wargame and  even training deep learning models to command troops. 
+Professional wargames seem difficult to get useful data from because the assumptions they use are scattered and adjudication is partly manual, so doing them at scale is often not feasible. As a result the limited data they produce can't easily be used to do deep analytics about potential conflicts. I think this is a real flaw that can be fixed by simulating them with software. Doing so will also enable really cool experiments like using LLMs as actors in the wargame and  even training deep learning models to command troops. 
 
 Over time I will scale this to be highly realistic and a potential model for wargames, but for now it is in beta. 
 
@@ -18,7 +16,7 @@ Over time I will scale this to be highly realistic and a potential model for war
 You play as either Blue, representing coalition forces, or Red, representing PLA forces. The opponent is limited at present to an agent with preset rules, but soon there will be many adversary modes, including agent-vs-agent conflicts. 
 
 Here are the important features about the simulation's behavior:
-- Each operational turn represents 3.5-days across an abstract Western Pacific map
+- Each operational turn is 3.5-days across a map of the Western Pacific
 - It contains air, surface, submarine, amphibious, and base formations
 - missile-first phase sequencing
 - air superiority, base strike, maritime strike, ground support, and rebasing
@@ -118,7 +116,7 @@ data/scenarios/*.json
                      LLM/RL adapters
 ```
 
-The engine never uses an LLM to determine combat outcomes. Language models can reason, negotiate, and issue orders, but the transparent rules engine remains authoritative. That said, in the future I will implement LLMs (as well as custom-trained models) to act as agents playing the game. 
+The engine is deterministic, so outcomes aren't adjudicated arbitrarily.
 
 ## Repository map
 
