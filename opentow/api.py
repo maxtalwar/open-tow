@@ -54,7 +54,7 @@ SERVICE = GameService()
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "OpenTOW/0.1"
+    server_version = "OpenTOW/0.2"
 
     def log_message(self, fmt: str, *args: Any) -> None:
         print(f"[open-tow] {self.address_string()} {fmt % args}")
@@ -62,7 +62,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         if parsed.path == "/api/health":
-            return self._json({"status": "ok", "version": "0.1.0"})
+            return self._json({"status": "ok", "version": "0.2.0"})
         if parsed.path == "/api/scenario":
             return self._json(scenario_metadata())
         if parsed.path == "/api/order-schema":
@@ -153,4 +153,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

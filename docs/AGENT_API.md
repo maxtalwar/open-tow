@@ -8,7 +8,7 @@ Open TOW exposes the same authoritative engine to humans, scripted policies, lan
 GET /api/observation?side=BLUE
 ```
 
-The response includes the side's objective and a side-filtered state. Hidden opposing formations may have concealed strength, readiness, mission, and target fields.
+The response includes the side's objective and a side-filtered state. It exposes the operational-area graph, the separate 30 km Taiwan ground graph, visible formations, weapon inventories, ground supply, and observer-specific submarine contacts. An undetected hostile submarine is omitted entirely; a contact appears as an uncertain track without exact strength, readiness, weapons, or mission.
 
 ## Legal-action schema
 
@@ -16,7 +16,9 @@ The response includes the side's objective and a side-filtered state. Hidden opp
 GET /api/order-schema
 ```
 
-The schema describes supported action shapes. The engine remains authoritative: agents cannot issue orders to hostile or destroyed units, overspend munitions or lift, move surface units across nonadjacent regions, or assign domain-incompatible missions.
+The schema describes supported action shapes. The engine remains authoritative: agents cannot issue orders to hostile or destroyed units, overspend named weapon inventories or lift, move formations beyond their graph allowance, use a weapon from an incompatible platform, or assign domain-incompatible missions. Generic missile strikes cannot target submerged submarines; agents must generate a sufficient ASW contact and use an ASW-capable formation.
+
+The principal action families are long-range strike, air mission, air rebase, surface movement/mission, submarine mission, amphibious lift, and formation-level ground order. A side may submit any number of orders, but each formation has mutually exclusive movement, mission, or lift slots and every allocation is validated against finite capacity.
 
 ## Submit a turn
 
@@ -64,4 +66,3 @@ A future PettingZoo parallel environment can map:
 - reward: a configurable vector containing objective progress, force preservation, munitions, escalation, and civilian-harm penalties.
 
 Training should randomize uncertain scenario parameters and use held-out excursion cases. A single-policy win rate on the base scenario is not a meaningful evaluation.
-

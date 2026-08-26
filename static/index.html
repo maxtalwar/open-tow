@@ -14,8 +14,11 @@
       <h1>Open TOW <span>/ Taiwan Operational Wargame</span></h1>
     </div>
     <div class="header-actions">
-      <label>Play as
-        <select id="side-select"><option>BLUE</option><option>RED</option></select>
+      <label>Command
+        <select id="side-select" aria-label="Choose the force you command">
+          <option value="BLUE">BLUE — Joint Coalition</option>
+          <option value="RED">RED — PLA Joint Force</option>
+        </select>
       </label>
       <button class="button ghost" id="new-game">New scenario</button>
       <button class="button primary" id="agent-turn">Run agent turn</button>
@@ -23,23 +26,47 @@
   </header>
 
   <main>
+    <section class="side-briefing" id="side-briefing" aria-live="polite">
+      <div class="command-identity">
+        <span class="command-kicker">YOU ARE COMMANDING</span>
+        <div class="command-title-row">
+          <span class="command-roundel" id="command-roundel">B</span>
+          <div><strong id="command-title">BLUE · Joint Coalition</strong><small id="command-members">United States · Taiwan · Japan · regional partners</small></div>
+        </div>
+      </div>
+      <div class="command-mission"><span>CAMPAIGN OBJECTIVE</span><strong id="command-objective">Defend Taiwan and deny a sustainable PLA lodgment.</strong></div>
+      <div class="opponent-identity"><span>OPPOSING FORCE</span><strong id="opponent-title">RED · PLA Joint Force</strong><small id="opponent-objective">Invade, reinforce, and secure control of Taiwan.</small></div>
+    </section>
+
     <section class="status-strip" aria-label="Campaign status">
       <article><span>Campaign</span><strong id="turn-value">Turn 1 / 8</strong><small>Each turn = 3.5 days</small></article>
-      <article><span>Taiwan control</span><strong id="control-value">0%</strong><div class="meter"><i id="control-meter"></i></div></article>
-      <article><span>RED lodgment</span><strong id="lodgment-value">0.0</strong><small>Ground strength ashore</small></article>
+      <article><span>PLA control of Taiwan</span><strong id="control-value">0%</strong><div class="meter"><i id="control-meter"></i></div></article>
+      <article><span>PLA lodgment</span><strong id="lodgment-value">0.0</strong><small>Ground strength ashore</small></article>
       <article><span>Taiwan defense</span><strong id="defense-value">20.0</strong><small>Remaining combat power</small></article>
-      <article><span>Long-range munitions</span><strong id="munition-value">70 / 110</strong><small>BLUE / RED</small></article>
+      <article><span>Long-range munitions</span><strong id="munition-value">70 / 110</strong><small>Coalition / PLA</small></article>
       <article><span>Assessment</span><strong id="status-value" class="status-live">ACTIVE</strong><small id="winner-value">Occupation denied so far</small></article>
     </section>
 
     <section class="workspace">
       <div class="map-panel panel">
         <div class="panel-heading">
-          <div><span class="eyebrow">OPERATIONAL PICTURE</span><h2>Western Pacific</h2></div>
-          <div class="legend"><span><i class="dot blue"></i> BLUE</span><span><i class="dot red"></i> RED</span><span><i class="dot contested"></i> Contested</span></div>
+          <div><span class="eyebrow">JOINT OPERATIONS PICTURE</span><h2>Western Pacific Theater</h2></div>
+          <div class="map-heading-actions">
+            <div class="legend"><span><i class="dot blue"></i> BLUE · Coalition</span><span><i class="dot red"></i> RED · PLA</span><span><i class="dot contested"></i> Objective</span></div>
+            <button id="replay-turn" class="replay-button" type="button" hidden>Replay latest turn</button>
+          </div>
         </div>
-        <svg id="map" viewBox="420 20 780 590" role="img" aria-label="Abstract Western Pacific operational map"></svg>
-        <div class="map-note">Abstract topology; positions do not represent tactical locations. Select a formation below for details.</div>
+        <div class="map-stage" id="map-stage">
+          <svg id="map" viewBox="420 20 800 610" role="img" aria-label="Western Pacific operational map showing coalition and PLA formations and airbases"></svg>
+          <div id="map-tooltip" class="map-tooltip" role="tooltip" hidden></div>
+          <section id="turn-replay" class="turn-replay" aria-live="polite" hidden>
+            <div class="replay-copy"><span id="replay-kicker">TURN REPLAY</span><strong id="replay-phase"></strong><p id="replay-message"></p></div>
+            <button id="replay-skip" class="replay-skip" type="button">Skip</button>
+            <div id="replay-progress" class="replay-progress" aria-hidden="true"></div>
+          </section>
+        </div>
+        <div id="symbol-key" class="symbol-key" aria-label="Map symbol key"></div>
+        <div class="map-note"><strong>Operational abstraction.</strong> Geography is recognizable, but areas, positions, ranges, and formation locations are schematic—not tactical coordinates. Hover or focus any symbol for details; click to pin.</div>
       </div>
 
       <aside class="orders-panel panel">
@@ -52,14 +79,17 @@
               <option value="air_mission">Air mission</option>
               <option value="rebase">Rebase aircraft</option>
               <option value="naval_move">Move surface group</option>
-              <option value="submarine_patrol">Submarine patrol</option>
+              <option value="naval_mission">Surface-group mission</option>
+              <option value="submarine_mission">Submarine mission</option>
               <option value="amphibious_lift">Amphibious lift</option>
-              <option value="ground_attack">Ground operations</option>
+              <option value="ground_order">Ground formation order</option>
+              <option value="ground_attack">Force-wide ground attack</option>
             </select>
           </label>
           <div id="dynamic-fields"></div>
           <button class="button ghost full" type="submit">Queue order</button>
         </form>
+        <div id="weapon-stockpile" class="weapon-stockpile" aria-label="Available weapon inventories"></div>
         <div id="orders-list" class="orders-list"><div class="empty">No orders queued.</div></div>
         <div class="order-actions">
           <button class="button subtle" id="clear-orders">Clear</button>
@@ -69,9 +99,24 @@
       </aside>
     </section>
 
+    <section class="ground-panel panel">
+      <div class="panel-heading">
+        <div><span class="eyebrow">TAIWAN GROUND CAMPAIGN · 30 KM LAND AREAS</span><h2>Beachheads, maneuver &amp; sustainment</h2></div>
+        <div class="ground-legend"><span><i class="dot blue"></i> Taiwan control</span><span><i class="dot red"></i> PLA control</span><span><i class="dot contested"></i> Contested</span></div>
+      </div>
+      <div class="ground-layout">
+        <div class="ground-map-wrap"><div class="ground-map-stage"><svg id="ground-map" viewBox="0 0 520 640" role="img" aria-label="Sim-style map of Taiwan with 30 kilometer ground areas and deployed formation symbols"></svg></div></div>
+        <div>
+          <div id="ground-summary" class="ground-summary"></div>
+          <div id="ground-roster" class="ground-roster"></div>
+        </div>
+      </div>
+      <div class="map-note"><strong>Separate scale.</strong> The geographic sectors visualize the engine's 30 km movement graph. Formations move one connected area per 3.5-day turn. BLUE rectangles and RED diamonds mark deployed formations; the internal glyph identifies formation type. PLA lift first sustains forces ashore, then delivers reserves.</div>
+    </section>
+
     <section class="lower-grid">
       <div class="panel formations-panel">
-        <div class="panel-heading"><div><span class="eyebrow">FORCE STATUS</span><h2>Formations</h2></div><div class="tabs"><button class="tab active" data-filter="ALL">All</button><button class="tab" data-filter="BLUE">Blue</button><button class="tab" data-filter="RED">Red</button></div></div>
+        <div class="panel-heading"><div><span class="eyebrow">FORCE STATUS</span><h2>Formations</h2></div><div class="tabs"><button class="tab active" data-filter="ALL">All</button><button class="tab" data-filter="BLUE">Coalition</button><button class="tab" data-filter="RED">PLA</button></div></div>
         <div id="formations" class="formations"></div>
       </div>
       <div class="panel log-panel">
@@ -82,14 +127,13 @@
 
     <section class="methodology panel">
       <div><span class="eyebrow">MODEL CARD</span><h2>What this is—and is not</h2></div>
-      <p>This is an independent educational reconstruction inspired by the public mechanics described in the CSIS report <em>The First Battle of the Next War</em>. The 3.5-day turns, aggregate formations, operational maps, sequencing, mission categories, amphibious sustainment, and sensitivity-analysis approach follow the published design.</p>
-      <p>Unit strengths, probabilities, map topology, doctrine agents, and victory thresholds are transparent synthetic reconstructions. This is not official CSIS or U.S. Government software, is not endorsed by either, and is not a forecast.</p>
+      <p>This independent educational reconstruction implements the public CSIS structure: 3.5-day turns, approximately 600 km operational areas, a separate 30 km Taiwan ground layer, mission packages, weapon-specific magazines, ASW contact development, and amphibious sustainment.</p>
+      <p>Counter quantities, probabilities, inventories, topology, doctrine agents, and victory thresholds remain transparent synthetic reconstructions because CSIS did not publish its complete umpire rules or order of battle. This is not official software or a forecast.</p>
       <a href="https://www.csis.org/analysis/first-battle-next-war-wargaming-chinese-invasion-taiwan" target="_blank" rel="noreferrer">Read the primary CSIS study ↗</a>
     </section>
   </main>
 
-  <footer><span>OPEN TOW v0.1.0</span><span>Seeded · Auditable · Agent-ready</span><span id="seed-value">Seed 7</span></footer>
+  <footer><span>OPEN TOW v0.2.0</span><span>Seeded · Auditable · Agent-ready</span><span id="seed-value">Seed 7</span></footer>
   <script src="/app.js" defer></script>
 </body>
 </html>
-

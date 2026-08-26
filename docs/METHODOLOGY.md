@@ -39,7 +39,9 @@ Randomness represents unresolved uncertainty within the model—not metaphysical
 
 ## Information model
 
-The server owns authoritative state. An observing side receives a filtered copy; opposing hidden submarine formations retain their location marker in the MVP but conceal strength, readiness, mission, and target. Future versions should implement probabilistic contact tracks rather than formation-level visibility.
+The server owns authoritative state. Deployed opposing submarines are omitted from an observer's state until an ASW-capable formation develops a contact. Contacts progress from detected to localized to identified, decay over time, and remain observer-specific. Only localized or identified contacts can be attacked by ASW weapons. Generic missile strikes cannot target submerged submarines.
+
+The public CSIS report describes the original game's maps, counter scales, mission categories, amphibious tonnage, ground formation types, submarine barriers, ASW interaction, and rearming cycles, but not the complete 70-page umpire rules, order of battle, probability tables, or source calculations. Open TOW implements that published structure while marking quantities and adjudication coefficients as synthetic reconstruction parameters.
 
 ## Validation strategy
 
@@ -55,4 +57,3 @@ The engine must not be considered validated for operational analysis without sub
 ## Responsible-use boundary
 
 The repository uses aggregate, open, and synthetic data. It intentionally excludes tactical targeting, real-time operational feeds, classified inputs, and claims of real-world predictive accuracy. Language models may issue orders, but they do not adjudicate outcomes.
-
