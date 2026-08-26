@@ -2,18 +2,24 @@
 
 **Open TOW** is an open-source digital wargame inspired by the CSIS Taiwan Operational Wargame described here: *[The First Battle of the Next War](https://www.csis.org/analysis/first-battle-next-war-wargaming-chinese-invasion-taiwan)*.
 
-> [!IMPORTANT]
-> This project is not official CSIS, U.S. Government, etc software and isn't endorsed by those organizations. This is an educational project I built at Georgetown to improve a flaw I see in existing wargames. 
+## Demo
+
+![Open TOW Western Pacific operational map showing coalition and PLA formations](docs/assets/open-tow-map.png)
+
+*The Western Pacific operational map. Geography is recognizable, but positions and ranges are schematic.*
 
 ## Why this project exists
 
-Professional wargames seem difficult to get useful data from because the assumptions they use are scattered and adjudication is partly manual, so doing them at scale is often not feasible. As a result the limited data they produce can't easily be used to do deep analytics about potential conflicts. I think this is a real flaw that can be fixed by simulating them with software. Doing so will also enable really cool experiments like using LLMs as actors in the wargame and  even training deep learning models to command troops. 
+Professional wargames seem difficult to get useful data from because the assumptions they use are scattered and adjudication is partly manual, so doing them at scale is often not feasible. As a result the limited data they produce can't easily be used to do deep analytics about potential conflicts. I think this is a real flaw that can be fixed by simulating them with software. Doing so will also enable really cool experiments like using LLMs as actors in the wargame and  even training deep learning models to command troops.
 
-Over time I will scale this to be highly realistic and a potential model for wargames, but for now it is in beta. 
+Over time I will scale this to be highly realistic and a potential model for wargames, but for now it is in beta.
+
+> [!IMPORTANT]
+> This project is not official CSIS, U.S. Government, etc software and isn't endorsed by those organizations. This is an educational project I built at Georgetown to improve a flaw I see in existing wargames.
 
 ## Current MVP
 
-You play as either Blue, representing coalition forces, or Red, representing PLA forces. The opponent is limited at present to an agent with preset rules, but soon there will be many adversary modes, including agent-vs-agent conflicts. 
+You play as either Blue, representing coalition forces, or Red, representing PLA forces. The opponent is limited at present to an agent with preset rules, but soon there will be many adversary modes, including agent-vs-agent conflicts.
 
 Here are the important features about the simulation's behavior:
 - Each operational turn is 3.5-days across a map of the Western Pacific
@@ -92,7 +98,7 @@ The server validates ownership, target legality, domain constraints, adjacency, 
 
 ## Design provenance
 
-My implementation comes in three categories, because while parts of it are based off of the original CSIS wargame, there is not enough publicly available information to make an exact replica. 
+My implementation comes in three categories, because while parts of it are based off of the original CSIS wargame, there is not enough publicly available information to make an exact replica.
 
 | Category | Examples |
 |---|---|
