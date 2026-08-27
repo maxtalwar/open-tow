@@ -6,8 +6,6 @@
 
 ![Open TOW Western Pacific operational map showing coalition and PLA formations](docs/assets/open-tow-map.png)
 
-*The Western Pacific operational map. Geography is recognizable, but positions and ranges are schematic.*
-
 ## Why this project exists
 
 Professional wargames seem difficult to get useful data from because the assumptions they use are scattered and adjudication is partly manual, so doing them at scale is often not feasible. As a result the limited data they produce can't easily be used to do deep analytics about potential conflicts. I think this is a real flaw that can be fixed by simulating them with software. Doing so will also enable really cool experiments like using LLMs as actors in the wargame and  even training deep learning models to command troops.
