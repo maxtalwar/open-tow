@@ -1,19 +1,14 @@
-const state = { game: null, scenario: null, orders: [], filter: 'ALL', selectedUnit: null, pinnedMapItem: null, replayEvents: [], replayRun: 0, replayRunning: false };
+const state = {
+  side: 'BLUE', game: null, scenario: null, geo: { theater: null, ground: null },
+  orders: [], action: 'missile_strike', filter: 'ALL', tab: 'orders', map: 'theater',
+  selected: null, pinned: null, peakMunitions: null,
+  replayEvents: [], replayRun: 0, replayRunning: false,
+};
 const $ = (id) => document.getElementById(id);
 
 const SIDE_META = {
-  BLUE: {
-    short: 'Coalition',
-    title: 'BLUE · Joint Coalition',
-    members: 'United States · Taiwan · Japan · regional partners',
-    objective: 'Defend Taiwan and deny a sustainable PLA lodgment.',
-  },
-  RED: {
-    short: 'PLA',
-    title: 'RED · PLA Joint Force',
-    members: 'People’s Liberation Army · Eastern Theater Command',
-    objective: 'Invade, reinforce, and secure control of Taiwan.',
-  },
+  BLUE: { short: 'Coalition', title: 'Coalition (BLUE)', members: 'United States · Taiwan · Japan', objective: 'Deny a sustainable PLA lodgment on Taiwan.' },
+  RED: { short: 'PLA', title: 'PLA (RED)', members: 'Eastern Theater Command', objective: 'Invade, reinforce, and secure control of Taiwan.' },
 };
 
 const WEAPON_META = {
@@ -22,8 +17,31 @@ const WEAPON_META = {
 };
 const AIR_WEAPONS = { BLUE: ['jassm_er', 'lrasm', 'harpoon'], RED: ['lacm', 'ascm'] };
 
+const ACTIONS = [
+  { id: 'missile_strike', label: 'Missile strike', group: 'Fires' },
+  { id: 'air_mission', label: 'Air mission', group: 'Air' },
+  { id: 'rebase', label: 'Rebase aircraft', group: 'Air' },
+  { id: 'naval_move', label: 'Move surface group', group: 'Maritime' },
+  { id: 'naval_mission', label: 'Surface-group mission', group: 'Maritime' },
+  { id: 'submarine_mission', label: 'Submarine mission', group: 'Maritime' },
+  { id: 'amphibious_lift', label: 'Amphibious lift', group: 'Ground' },
+  { id: 'ground_order', label: 'Ground formation order', group: 'Ground' },
+  { id: 'ground_attack', label: 'Force-wide ground attack', group: 'Ground' },
+];
+const actionLabel = (id) => ACTIONS.find((action) => action.id === id)?.label || humanize(id);
+
+const KIND_LABEL = {
+  fighter_5g: '5th-gen fighters', fighter_45g: '4.5-gen fighters', fighter_4g: '4th-gen fighters', bomber: 'Bombers', maritime_patrol: 'Maritime patrol',
+  carrier: 'Carrier strike group', surface: 'Surface action group', amphibious: 'Amphibious group', nuclear_submarine: 'Nuclear submarines', diesel_submarine: 'Diesel submarines', submarine_contact: 'Submarine contact',
+  infantry: 'Infantry brigade', mechanized: 'Mechanized brigade', armor: 'Armored brigade', artillery: 'Artillery brigade', airborne: 'Airborne brigade', engineer: 'Engineer brigade',
+};
+
 const escapeMarkup = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 const unitIsActive = (unit) => unit.strength == null || Number(unit.strength) > .05;
+const humanize = (value) => String(value ?? 'unknown').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+const formatNumber = (value, digits = 0) => (Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : '—');
+const pct = (value, max) => (Number(max) > 0 ? Math.max(0, Math.min(100, Number(value) / Number(max) * 100)) : 0);
+const affiliation = (side) => (side === 'BLUE' ? 'friend' : 'hostile');
 
 async function api(path, options = {}) {
   const response = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...options });
@@ -33,348 +51,720 @@ async function api(path, options = {}) {
 }
 
 async function load() {
-  [state.scenario, state.game] = await Promise.all([api('/api/scenario'), api(`/api/state?observer=${$('side-select').value}`)]);
+  const [scenario, game, theater, ground] = await Promise.all([
+    api('/api/scenario'), api(`/api/state?observer=${state.side}`), api('/geo/theater.json'), api('/geo/taiwan.json'),
+  ]);
+  Object.assign(state, { scenario, game });
+  state.geo = { theater, ground };
+  initMapViews();
   render();
 }
 
 function render() {
-  const game = state.game;
-  renderSideBriefing();
-  $('turn-value').textContent = `Turn ${game.turn} / ${game.max_turns}`;
-  $('control-value').textContent = `${game.metrics.taiwan_control.toFixed(0)}%`;
-  $('control-meter').style.width = `${game.metrics.taiwan_control}%`;
-  $('lodgment-value').textContent = game.metrics.red_lodgment.toFixed(1);
-  $('defense-value').textContent = game.metrics.taiwan_defense.toFixed(1);
-  $('munition-value').textContent = `${game.munitions.BLUE.long_range.toFixed(0)} / ${game.munitions.RED.long_range.toFixed(0)}`;
-  $('status-value').textContent = game.status;
-  $('winner-value').textContent = game.winner ? `Outcome: ${SIDE_META[game.winner]?.title || game.winner}` : 'Occupation denied so far';
-  $('seed-value').textContent = `Seed ${game.seed}`;
-  renderMap(); renderGroundMap(); renderForm(); renderStockpile(); renderOrders(); renderFormations(); renderEvents(); updateReplayButton();
+  trackPeakMunitions();
+  renderAppbar();
+  renderSituation();
+  renderTheaterMap();
+  renderGroundMap();
+  renderCartouche();
+  renderActionSelect();
+  renderForm();
+  renderStockpile();
+  renderOrders();
+  renderForces();
+  renderEvents();
+  updateReplayButton();
+  $('seed-value').textContent = `Seed ${state.game.seed}`;
 }
 
-function renderSideBriefing() {
-  const side = $('side-select').value;
-  const opponent = side === 'BLUE' ? 'RED' : 'BLUE';
-  const briefing = $('side-briefing');
-  briefing.classList.toggle('commanding-blue', side === 'BLUE');
-  briefing.classList.toggle('commanding-red', side === 'RED');
-  $('command-roundel').textContent = side === 'BLUE' ? 'B' : 'R';
-  $('command-title').textContent = SIDE_META[side].title;
-  $('command-members').textContent = SIDE_META[side].members;
-  $('command-objective').textContent = SIDE_META[side].objective;
-  $('opponent-title').textContent = SIDE_META[opponent].title;
-  $('opponent-objective').textContent = SIDE_META[opponent].objective;
+// ── App bar & situation ─────────────────────────────────────────────────────
+function formatDays(value) { return Number.isInteger(value) ? String(value) : value.toFixed(1); }
+
+function renderAppbar() {
+  const { turn, max_turns: maxTurns, status } = state.game;
+  const days = state.scenario?.turn_days || 3.5;
+  $('turn-value').textContent = `Turn ${turn} of ${maxTurns}`;
+  $('turn-days').textContent = `Days ${formatDays((turn - 1) * days)}–${formatDays(turn * days)}`;
+  $('turn-track').innerHTML = Array.from({ length: maxTurns }, (_, index) => {
+    const number = index + 1;
+    const phase = number < turn || (status !== 'ACTIVE' && number <= turn) ? 'past' : number === turn && status === 'ACTIVE' ? 'now' : '';
+    return `<i class="${phase}"></i>`;
+  }).join('');
+  document.body.dataset.side = state.side;
+  document.querySelectorAll('#side-toggle [data-side]').forEach((button) => button.setAttribute('aria-checked', String(button.dataset.side === state.side)));
 }
 
-function renderMap() {
-  const svg = $('map');
-  hideMapTooltip(true);
-  const regions = state.game.regions;
-  const drawn = new Set();
-  let content = `<defs>
-    <linearGradient id="ocean-gradient" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#c8dadd"/><stop offset=".5" stop-color="#b7cfd3"/><stop offset="1" stop-color="#9dbbc1"/></linearGradient>
-    <radialGradient id="shelf-gradient" cx="0" cy=".5" r="1"><stop offset="0" stop-color="#eef1e8" stop-opacity=".72"/><stop offset=".45" stop-color="#cfdee0" stop-opacity=".46"/><stop offset="1" stop-color="#7fa9b2" stop-opacity="0"/></radialGradient>
-    <linearGradient id="land-gradient" x1="0" y1="0" x2=".8" y2="1"><stop offset="0" stop-color="#e1ddcf"/><stop offset=".58" stop-color="#d1cbb9"/><stop offset="1" stop-color="#bcb6a4"/></linearGradient>
-    <pattern id="chart-grid" width="80" height="80" patternUnits="userSpaceOnUse"><path d="M80 0H0V80M20 0V80M40 0V80M60 0V80M0 20H80M0 40H80M0 60H80" fill="none" stroke="#426972" stroke-opacity=".075" stroke-width=".7"/></pattern>
-    <filter id="land-shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="1.2" dy="2" stdDeviation="2.5" flood-color="#29464c" flood-opacity=".2"/></filter>
-    <filter id="symbol-shadow" x="-70%" y="-70%" width="240%" height="240%"><feDropShadow dx="0" dy="1.2" stdDeviation="1.2" flood-color="#102b33" flood-opacity=".32"/></filter>
-    <radialGradient id="objective-glow"><stop offset="0" stop-color="#d19b3d" stop-opacity=".22"/><stop offset="1" stop-color="#d19b3d" stop-opacity="0"/></radialGradient>
-  </defs>
-  <rect class="ocean-field" x="420" y="20" width="800" height="610" fill="url(#ocean-gradient)"/>
-  <path class="continental-shelf" d="M420 20H610c20 74 3 126-18 180-22 58-15 114-38 175-25 68-29 151-73 255H420Z" fill="url(#shelf-gradient)"/>
-  <g class="ocean-contours">
-    <path d="M602 20c27 90 11 158-15 224-25 65-11 121-40 192-22 53-24 123-53 194"/>
-    <path d="M646 20c37 90 18 170-10 238-25 61-10 133-42 197-25 50-31 112-51 175"/>
-    <path d="M824 20c70 58 111 123 137 200 25 74 70 130 147 166 46 22 83 56 112 99"/>
-    <path d="M938 20c53 66 85 129 101 203 13 58 58 102 111 131"/>
-  </g>
-  <rect x="420" y="20" width="800" height="610" fill="url(#chart-grid)"/>
-  <g class="map-geography" filter="url(#land-shadow)">
-    <path class="map-land mainland" d="M420 20H548c2 22 16 43 12 67-3 20 8 38 2 58-8 25 1 42-11 65-9 18-4 39-15 61-12 23-5 48-18 74-12 25-7 54-20 83-13 28-14 62-28 92-14 32-25 70-42 110H420Z"/>
-    <path class="map-land korea" d="M586 20c12 12 19 27 19 43l-7 21 7 17-13 20-12-12 4-26-9-20 8-23Z"/>
-    <path class="map-land japan" d="M679 111l14-16 20-5 11 8-8 13-21 9Z"/>
-    <path class="map-land japan" d="M716 92l19-15 35-10 40-5 28 7-16 10-36 7-32 15-25 5Z"/>
-    <path class="map-land japan" d="M753 111l23-12 35-4 18 8-22 12-31 4Z"/>
-    <path class="map-land japan" d="M832 43l18-12 21 6 5 14-17 13-21-5Z"/>
-    <path class="map-land ryukyu" d="M714 143l8-5 7 6-8 6Zm-13 27 7-3 6 6-8 5Zm-10 27 7-2 5 6-8 4Zm-5 28 6-1 4 7-7 2Zm2 29 6 1 2 7-7-1Z"/>
-    <path class="map-land taiwan" d="M720 294c8 7 13 21 12 37-1 21-9 43-17 55-8-10-11-27-9-45 2-21 6-38 14-47Z"/>
-    <path class="map-land luzon" d="M747 448c10 5 19 18 20 33l-5 19 8 18-5 27-9 24-12-12 2-24-8-21 6-25-5-20Z"/>
-    <path class="map-land philippines" d="M781 505l8 8-5 16-7-8Zm12 25 7 7-4 14-7-8Zm-11 33 8 7-3 17-8-9Zm21 22 9 8-4 18-10-10Z"/>
-    <path class="map-land guam" d="M1078 345l6 9-3 17-6-10Z"/>
-    <g class="terrain-relief"><path d="M447 42c38 42 48 90 39 140-8 44 10 83-8 132-14 37-13 78-29 122"/><path d="M466 34c35 54 39 99 31 145-8 49 8 88-10 137"/><path d="M720 305c-1 22-2 46-5 66"/><path d="M752 462c-1 28 2 58 0 86"/></g>
-  </g>
-  ${renderGeographicLabels(regions)}
-  <g class="graticule-labels"><text x="432" y="44">30°N</text><text x="432" y="244">25°N</text><text x="432" y="444">20°N</text><text x="612" y="622">120°E</text><text x="812" y="622">125°E</text><text x="1012" y="622">130°E</text></g>
-  <circle class="objective-glow" cx="720" cy="339" r="70" fill="url(#objective-glow)"/>
-  <circle class="objective-ring outer" cx="720" cy="339" r="47"/><circle class="objective-ring" cx="720" cy="339" r="39"/>
-  <text class="objective-label" x="720" y="401">TAIWAN OBJECTIVE</text>`;
-
-  Object.entries(regions).forEach(([id, region]) => region.adjacent.forEach((other) => {
-    const key = [id, other].sort().join(':');
-    if (!drawn.has(key) && regions[other]) {
-      drawn.add(key); content += `<line class="region-edge" x1="${region.x}" y1="${region.y}" x2="${regions[other].x}" y2="${regions[other].y}"/>`;
-    }
-  }));
-
-  Object.entries(regions).forEach(([id, region]) => {
-    const units = Object.values(state.game.units).filter((unit) => unit.region === id && unitIsActive(unit));
-    const bases = Object.values(state.game.bases).filter((base) => base.region === id);
-    const rx = id === 'taiwan' ? 40 : 53;
-    const ry = id === 'taiwan' ? 49 : 35;
-    const label = regionLabelPosition(id, region, ry);
-    content += `<ellipse class="region-zone ${id}" cx="${region.x}" cy="${region.y}" rx="${rx}" ry="${ry}"/><text class="region-label" x="${label.x}" y="${label.y}">${escapeMarkup(region.name)}</text><text class="region-count" x="${label.x}" y="${label.y + 10}">${units.length} FORMATION${units.length === 1 ? '' : 'S'} · ${bases.length} BASE${bases.length === 1 ? '' : 'S'}</text>`;
-    const items = [...units.map((unit) => ({ type: 'unit', data: unit })), ...bases.map((base) => ({ type: 'base', data: base }))];
-    const offsets = symbolOffsets(items.length, id);
-    items.forEach((item, index) => {
-      const x = region.x + offsets[index].x;
-      const y = region.y + offsets[index].y;
-      content += item.type === 'unit' ? formationSymbol(item.data, x, y) : baseSymbol(item.data, x, y);
-    });
-  });
-  svg.innerHTML = content + '<g id="event-overlay" class="replay-overlay side-neutral" aria-hidden="true"></g>';
-  attachMapInteractions(svg);
+function renderSituation() {
+  const { metrics, munitions, status, winner } = state.game;
+  const control = Math.max(0, Math.min(100, Number(metrics.taiwan_control) || 0));
+  const lodgment = Number(metrics.red_lodgment) || 0;
+  const outcome = winner ? (winner === 'DRAW' ? 'Draw — contested lodgment' : `${SIDE_META[winner]?.short || winner} victory`) : 'In progress';
+  $('situation').innerHTML = `
+    <div class="sit-head"><h2>Situation · commanding ${escapeMarkup(SIDE_META[state.side].short)}</h2><span class="sit-status${status === 'ACTIVE' ? '' : ' done'}">${escapeMarkup(outcome)}</span></div>
+    <div class="control-row"><span>PLA control of Taiwan</span><strong>${control.toFixed(0)}%</strong></div>
+    <div class="control-scale" title="Engine victory rules: PLA wins at 80% control; at the final turn, under 50% is a Coalition win, otherwise a draw."><i style="width:${control}%"></i><b style="left:50%"><span>50 · draw</span></b><b style="left:80%"><span>80 · PLA win</span></b></div>
+    <div class="sit-grid">
+      <div><span>Taiwan defense</span><strong>${formatNumber(metrics.taiwan_defense, 1)}</strong></div>
+      <div><span>PLA ashore</span><strong>${formatNumber(lodgment, 1)}</strong></div>
+      <div><span>PLA supply ashore</span><strong>${lodgment > 0 ? `${(Number(metrics.red_ground_supply || 0) * 100).toFixed(0)}%` : '—'}</strong></div>
+    </div>
+    <p class="sit-note">Long-range munitions: Coalition ${formatNumber(munitions.BLUE.long_range)} · PLA ${formatNumber(munitions.RED.long_range)}</p>`;
 }
 
-function renderGeographicLabels(regions) {
-  const labels = [
-    { text: 'CHINA', x: 460, y: 238 },
-    { text: 'JAPAN', x: 787, y: 52, region: 'japan' },
-    { text: 'TAIWAN', x: 738, y: 366, region: 'taiwan' },
-    { text: 'PHILIPPINES', x: 785, y: 606 },
-    { text: 'GUAM', x: 1090, y: 367, region: 'guam' },
-    { text: 'WESTERN PACIFIC', x: 955, y: 171, region: 'western_pacific', className: 'water-label' },
-    { text: 'TAIWAN STRAIT', x: 621, y: 352, region: 'taiwan_strait', className: 'water-label minor' },
-  ];
-  const visible = labels.filter((label) => !label.region || !regions[label.region]);
-  return `<g class="geo-labels">${visible.map((label) => `<text${label.className ? ` class="${label.className}"` : ''} x="${label.x}" y="${label.y}">${escapeMarkup(label.text)}</text>`).join('')}</g>`;
-}
-
-function regionLabelPosition(id, region, ry) {
-  const positions = {
-    japan: { x: 800, y: 43 },
-    ryukyus: { x: 715, y: 112 },
-    east_china_sea: { x: 610, y: 141 },
-    fujian_coast: { x: 532, y: 218 },
-    taiwan_strait: { x: 575, y: 386 },
-    taiwan: { x: 755, y: 281 },
-    philippine_sea: { x: 875, y: 267 },
-    bashi_channel: { x: 692, y: 424 },
-    western_pacific: { x: 1000, y: 176 },
-    south_china_sea: { x: 552, y: 459 },
-    luzon: { x: 760, y: 465 },
-    guam: { x: 1080, y: 311 },
-  };
-  return positions[id] || { x: region.x, y: region.y - ry - 8 };
-}
-
-function symbolOffsets(count, regionId) {
-  if (!count) return [];
-  const columns = count <= 2 ? count : count <= 4 ? 2 : 3;
-  const rows = Math.ceil(count / columns);
-  const spacingX = regionId === 'taiwan' ? 22 : 26;
-  const spacingY = 23;
-  return Array.from({ length: count }, (_, index) => ({
-    x: (index % columns - (columns - 1) / 2) * spacingX,
-    y: (Math.floor(index / columns) - (rows - 1) / 2) * spacingY + 3,
+function trackPeakMunitions() {
+  if (!state.peakMunitions) state.peakMunitions = { BLUE: {}, RED: {} };
+  ['BLUE', 'RED'].forEach((side) => Object.entries(state.game.munitions[side] || {}).forEach(([key, value]) => {
+    state.peakMunitions[side][key] = Math.max(state.peakMunitions[side][key] || 0, Number(value) || 0);
   }));
 }
 
-function formationCode(unit) {
-  const codes = { fighter_5g: '5G', fighter_45g: '4.5', fighter_4g: '4G', bomber: 'BMR', maritime_patrol: 'MPA', carrier: 'CV', surface: 'SAG', amphibious: 'ARG', nuclear_submarine: 'SSN', diesel_submarine: 'SSK', submarine_contact: 'SUB?' };
-  return codes[unit.kind] || unit.domain.slice(0, 3).toUpperCase();
-}
-
-function formationGlyph(kind) {
-  if (kind.startsWith('fighter')) return '<path d="M-12 3-4-2 0-13 4-2 12 3 5 6 2 12h-4l-3-6Z"/>';
-  if (kind === 'bomber') return '<path d="M-13 4-5-2-2-12h4L5-2l8 6-2 4-9-2-1 7h-2l-1-7-9 2Z"/>';
-  if (kind === 'maritime_patrol') return '<path d="M-14 3-5-2-2-11h4L5-2l9 5-2 4-10-2-1 7h-2l-1-7-10 2Z"/><circle cx="0" cy="0" r="3"/>';
-  if (kind === 'carrier') return '<path d="M-14 4h28l-5 8H-9Z"/><path d="M-11 0h22M-6-4H8L4 0" fill="none"/>';
-  if (kind === 'surface') return '<path d="M-14 3h28l-5 9H-9Z"/><path d="M-5 3v-7h10v7M0-4v-4" fill="none"/>';
-  if (kind === 'amphibious') return '<path d="M-14 3h28l-5 8H-9Z"/><path d="M-7-1 0-9 7-1M0-9V5M-11 14h22" fill="none"/>';
-  if (kind.includes('submarine')) return '<path d="M-14 7c3-10 25-10 28 0Z"/><path d="M0-2v-7h6M-10 11h20" fill="none"/>';
-  return '<circle r="8" fill="none"/><path d="M-8 0H8M0-8V8" fill="none"/>';
-}
-
-function formationFrame(side) {
-  return side === 'BLUE'
-    ? '<rect class="symbol-frame" x="-20" y="-16" width="40" height="32" rx="4"/>'
-    : '<path class="symbol-frame" d="M0-21 24 0 0 21-24 0Z"/>';
-}
-
-function baseGlyph() {
-  return '<path class="base-frame" d="M-15 13h30M-11 13V-3h22v16M-6-3v-8H6v8"/>';
-}
-
-function navalBaseGlyph() {
-  return '<path class="base-frame" d="M-15 11h30M-10 6h20l-4 6H-6Z M0 6V-10M-6-4H6"/>';
-}
-
-function formationSymbol(unit, x, y) {
-  const side = unit.side.toLowerCase();
-  const strength = unit.strength == null ? 'unknown strength' : `${Number(unit.strength).toFixed(1)} strength`;
-  const selected = state.selectedUnit === unit.id ? ' selected' : '';
-  const frame = formationFrame(unit.side);
-  return `<g class="map-unit side-${side}${selected}" data-map-kind="unit" data-map-id="${escapeMarkup(unit.id)}" transform="translate(${x} ${y}) scale(.56)" tabindex="0" role="button" aria-label="${escapeMarkup(unit.name)}, ${SIDE_META[unit.side].title}, ${strength}. Hover or press Enter for details." aria-describedby="map-tooltip" filter="url(#symbol-shadow)"><circle class="symbol-hit" r="29"/>${frame}<g class="symbol-glyph">${formationGlyph(unit.kind)}</g><text class="map-unit-code" y="29">${formationCode(unit)}</text></g>`;
-}
-
-function baseSymbol(base, x, y) {
-  const side = base.side.toLowerCase();
-  const selected = state.pinnedMapItem?.kind === 'base' && state.pinnedMapItem.id === base.id ? ' selected' : '';
-  const naval = base.kind === 'naval_base';
-  return `<g class="map-base side-${side}${selected}" data-map-kind="base" data-map-id="${escapeMarkup(base.id)}" transform="translate(${x} ${y}) scale(.56)" tabindex="0" role="button" aria-label="${escapeMarkup(base.name)}, ${SIDE_META[base.side].title} ${naval ? 'naval base' : 'airbase'}. Hover or press Enter for details." aria-describedby="map-tooltip" filter="url(#symbol-shadow)"><circle class="symbol-hit" r="29"/>${naval ? navalBaseGlyph() : baseGlyph()}<text class="map-unit-code" y="28">${naval ? 'NB' : 'AB'}</text></g>`;
-}
-
-function legendType(kind, label, code) {
-  const glyph = kind === 'air_base' ? baseGlyph() : `<g class="symbol-glyph">${formationGlyph(kind)}</g>`;
-  return `<span class="key-item key-type"><svg viewBox="-18 -18 36 36" aria-hidden="true">${glyph}</svg><span class="key-copy">${label}<small>${code}</small></span></span>`;
-}
-
-function renderSymbolKey() {
-  $('symbol-key').innerHTML = `
-    <span class="symbol-key-title">MAP SYMBOLS</span>
-    <span class="key-section">SIDE FRAME</span>
-    <span class="key-item key-side side-blue"><svg viewBox="-28 -24 56 48" aria-hidden="true">${formationFrame('BLUE')}</svg><span class="key-copy">Coalition<small>BLUE rectangle</small></span></span>
-    <span class="key-item key-side side-red"><svg viewBox="-28 -24 56 48" aria-hidden="true">${formationFrame('RED')}</svg><span class="key-copy">PLA<small>RED diamond</small></span></span>
-    <span class="key-section key-section-types">FORMATION TYPE</span>
-    ${legendType('fighter_5g', 'Fighter wing', '5G · 4.5 · 4G')}
-    ${legendType('bomber', 'Bomber wing', 'BMR')}
-    ${legendType('maritime_patrol', 'Maritime patrol', 'MPA')}
-    ${legendType('surface', 'Surface group', 'SAG')}
-    ${legendType('carrier', 'Carrier group', 'CV')}
-    ${legendType('nuclear_submarine', 'Submarine', 'SSN · SSK')}
-    ${legendType('amphibious', 'Amphibious group', 'ARG')}
-    ${legendType('air_base', 'Air base', 'AB')}
-    <span class="key-item key-type"><svg viewBox="-18 -18 36 36" aria-hidden="true">${navalBaseGlyph()}</svg><span class="key-copy">Naval base<small>NB</small></span></span>`;
-}
-
-function miniFormationIcon(unit) {
-  return `<svg class="formation-icon side-${unit.side.toLowerCase()}" viewBox="-18 -18 36 36" aria-hidden="true"><g class="symbol-glyph">${formationGlyph(unit.kind)}</g></svg>`;
-}
-
-function ownUnits(domain, kind) {
-  const side = $('side-select').value;
-  return Object.values(state.game.units).filter((unit) => unit.side === side && Number(unit.strength || 0) > .05 && (!domain || unit.domain === domain) && (!kind || unit.kind === kind));
-}
-
-function renderStockpile() {
-  const side = $('side-select').value;
-  const inventory = state.game.munitions[side];
-  $('weapon-stockpile').innerHTML = `<span>AVAILABLE MAGAZINES</span><div>${Object.entries(WEAPON_META[side]).map(([id, meta]) => `<small><b>${escapeMarkup(meta[0])}</b>${Number(inventory[id] || 0).toFixed(0)}</small>`).join('')}</div>`;
-}
-
-const TAIWAN_ISLAND_PATH = 'M304 34C342 59 370 107 386 164C402 223 404 286 393 348C382 412 354 480 319 542C295 584 269 614 249 606C226 596 211 558 204 515C195 453 190 390 190 322C190 258 195 201 211 153C229 98 263 55 304 34Z';
-const GROUND_ZONE_LAYOUT = {
-  north_beach: { title: 'NORTH COAST', path: 'M122 35H307L300 122L260 153L200 157L149 132Z', labelX: 226, labelY: 92, unitX: 226, unitY: 133 },
-  taipei: { title: 'TAIPEI', path: 'M307 35H430V170L330 185L300 122Z', labelX: 327, labelY: 91, unitX: 326, unitY: 133 },
-  west_beach: { title: 'CENTRAL WEST', path: 'M149 132L200 157L260 153L289 239L260 282L159 286L124 235Z', labelX: 214, labelY: 202, unitX: 214, unitY: 248 },
-  taichung: { title: 'TAICHUNG', path: 'M159 286L260 282L300 341L280 402L170 407L130 350Z', labelX: 218, labelY: 318, unitX: 218, unitY: 362 },
-  central_mountains: { title: 'CENTRAL RANGE', path: 'M260 153L330 185L341 305L320 432L280 402L300 341L289 239Z', labelX: 304, labelY: 246, unitX: 304, unitY: 315 },
-  hualien: { title: 'HUALIEN', path: 'M330 185L430 170L441 330L341 351L341 305Z', labelX: 358, labelY: 207, unitX: 356, unitY: 266 },
-  east_coast: { title: 'EAST COAST', path: 'M341 305L441 330L430 502L320 538L280 466L320 432Z', labelX: 355, labelY: 397, unitX: 354, unitY: 458 },
-  south_beach: { title: 'SOUTHWEST', path: 'M130 350L170 407L236 466L210 537L134 532L104 450Z', labelX: 204, labelY: 456, unitX: 205, unitY: 506 },
-  kaohsiung: { title: 'KAOHSIUNG', path: 'M236 466L280 466L320 538L301 650H169L134 532L210 537Z', labelX: 254, labelY: 535, unitX: 254, unitY: 580 },
+// ── Military symbols (MIL-STD-2525-style frames) ────────────────────────────
+// Frame geometry by battle dimension and affiliation, in symbol units (≈30 wide).
+const FRAMES = {
+  friend: {
+    air: { d: 'M-15 9V-1A15 14 0 0 1 15 -1V9', box: [-11, -10, 11, 8], top: -15, bottom: 9 },
+    sea: { d: 'M13 0A13 13 0 1 1 -13 0A13 13 0 1 1 13 0Z', box: [-9, -9, 9, 9], top: -13, bottom: 13 },
+    sub: { d: 'M-15 -9V1A15 14 0 0 0 15 1V-9', box: [-11, -8, 11, 8], top: -9, bottom: 15 },
+    land: { d: 'M-17 -11H17V11H-17Z', box: [-17, -11, 17, 11], top: -11, bottom: 11 },
+    installation: { d: 'M-12 -8H12V8H-12Z', box: [-12, -8, 12, 8], top: -8, bottom: 8 },
+  },
+  hostile: {
+    air: { d: 'M-15 9V-1L0 -16L15 -1V9', box: [-9, -7, 9, 8], top: -16, bottom: 9 },
+    sea: { d: 'M0 -15L15 0L0 15L-15 0Z', box: [-8, -8, 8, 8], top: -15, bottom: 15 },
+    sub: { d: 'M-15 -9V1L0 16L15 1V-9', box: [-9, -8, 9, 7], top: -9, bottom: 16 },
+    land: { d: 'M0 -16L16 0L0 16L-16 0Z', box: [-8, -8, 8, 8], top: -16, bottom: 16 },
+    installation: { d: 'M0 -12L12 0L0 12L-12 0Z', box: [-6, -6, 6, 6], top: -12, bottom: 12 },
+  },
 };
 
-function groundUnitCode(unit) {
-  const codes = { infantry: 'INF', mechanized: 'MECH', armor: 'ARM', artillery: 'ARTY', airborne: 'ABN', engineer: 'ENG' };
-  return codes[unit.kind] || unit.kind.slice(0, 4).toUpperCase();
+const PLANE = 'M0 -7.5V4.5M-8 -1.5L0 -4L8 -1.5M-3.2 4L0 3L3.2 4';
+const ANCHOR = 'M0 -5.5V5M-3 -3.5H3M-5 1.5Q0 7.5 5 1.5';
+
+function unitDimension(unit) {
+  if (unit.hex_id !== undefined || unit.attack !== undefined) return 'land';
+  if (unit.domain === 'air') return 'air';
+  if (unit.domain === 'submarine') return 'sub';
+  return 'sea';
 }
 
-function groundFormationGlyph(kind) {
-  if (kind === 'infantry') return '<path d="M-10-7 10 7M10-7-10 7"/>';
-  if (kind === 'mechanized') return '<path d="M-10-7 10 7M10-7-10 7"/><ellipse cx="0" cy="0" rx="13" ry="8"/>';
-  if (kind === 'armor') return '<ellipse cx="0" cy="0" rx="13" ry="8"/><path d="M-8 0H8"/>';
-  if (kind === 'artillery') return '<circle cx="0" cy="0" r="3.2"/><path d="M0-11V11M-11 0H11"/>';
-  if (kind === 'airborne') return '<path d="M-12 6Q-6-7 0 5Q6-7 12 6M0 5V12M-7 9H7"/>';
-  if (kind === 'engineer') return '<path d="M-12 8H12M-9 8V-7M9 8V-7M-9-2H9M-5-2V5M0-2V5M5-2V5"/>';
-  return '<circle r="9"/><path d="M-7 0H7M0-7V7"/>';
+function symbolIcon(kind, dimension, frame) {
+  const [x0, y0, x1, y1] = frame.box;
+  const w = x1 - x0;
+  const h = y1 - y0;
+  const text = (value, y = 0, size) => `<text class="icon-text" x="0" y="${y}"${size ? ` style="font-size:${size}px"` : ''}>${value}</text>`;
+  if (dimension === 'air') {
+    const letter = { fighter_5g: 'F', fighter_45g: 'F', fighter_4g: 'F', bomber: 'B', maritime_patrol: 'P' }[kind] || '';
+    return `<path class="icon" d="${PLANE}" transform="translate(0 ${y0 + 6.5}) scale(.82)"/>${letter ? text(letter, y1 - 3.2, 6.5) : ''}`;
+  }
+  if (dimension === 'sea') return text({ carrier: 'CV', surface: 'SAG', amphibious: 'AMPH' }[kind] || 'SUR', 0, kind === 'amphibious' ? 6.5 : 7.5);
+  if (dimension === 'sub') return text({ nuclear_submarine: 'SSN', diesel_submarine: 'SSK', submarine_contact: '?' }[kind] || 'SUB', -1.5, kind === 'submarine_contact' ? 10 : 7);
+  if (dimension === 'installation') return kind === 'naval_base' ? `<path class="icon" d="${ANCHOR}" transform="scale(.9)"/>` : `<path class="icon" d="${PLANE}" transform="scale(.72)"/>`;
+  // Land unit icons drawn inside the frame's inscribed box.
+  const cross = `M${x0} ${y0}L${x1} ${y1}M${x1} ${y0}L${x0} ${y1}`;
+  const oval = `<ellipse class="icon" cx="0" cy="0" rx="${w * .3}" ry="${h * .27}"/>`;
+  if (kind === 'infantry') return `<path class="icon" d="${cross}"/>`;
+  if (kind === 'armor') return oval;
+  if (kind === 'mechanized') return `<path class="icon" d="${cross}"/>${oval}`;
+  if (kind === 'artillery') return '<circle class="icon-fill" r="2.6"/>';
+  if (kind === 'airborne') return `<path class="icon" d="${cross}"/><path class="icon" d="M-5 ${y1 - 1.5}A5 3.5 0 0 1 5 ${y1 - 1.5}"/>`;
+  if (kind === 'engineer') return `<path class="icon" d="M${x0 * .7} 3V-3H${x1 * .7}V3M0 -3V3"/>`;
+  return '<circle class="icon" r="4"/>';
 }
 
-function groundSymbolOffsets(count) {
-  if (!count) return [];
-  const columns = count <= 2 ? count : count <= 4 ? 2 : 3;
-  const rows = Math.ceil(count / columns);
-  return Array.from({ length: count }, (_, index) => ({
-    x: (index % columns - (columns - 1) / 2) * 34,
-    y: (Math.floor(index / columns) - (rows - 1) / 2) * 32,
-  }));
+function strengthBar(unit, frame) {
+  const max = Number(unit.max_strength);
+  const known = unit.strength != null && Number.isFinite(Number(unit.strength)) && max > 0;
+  const y = frame.bottom + 3;
+  const width = 26;
+  const fill = known ? `<rect class="str-fill" x="${-width / 2}" y="${y}" width="${(width * pct(unit.strength, max) / 100).toFixed(1)}" height="3"/>` : `<rect class="str-unknown" x="${-width / 2}" y="${y}" width="${width}" height="3"/>`;
+  return `<rect class="str-track" x="${-width / 2}" y="${y}" width="${width}" height="3"/>${fill}`;
 }
 
-function groundFormationSymbol(unit, x, y) {
-  const side = unit.side.toLowerCase();
-  const scale = .64;
-  const detail = `${unit.name}, ${SIDE_META[unit.side].title}, ${Number(unit.strength).toFixed(1)} strength, ${(Number(unit.supply) * 100).toFixed(0)} percent supply`;
-  return `<g class="map-unit ground-map-unit side-${side}" transform="translate(${x} ${y}) scale(${scale})" tabindex="0" role="img" aria-label="${escapeMarkup(detail)}" filter="url(#ground-symbol-shadow)"><title>${escapeMarkup(detail)}</title><circle class="symbol-hit" r="29"/>${formationFrame(unit.side)}<g class="symbol-glyph">${groundFormationGlyph(unit.kind)}</g><text class="map-unit-code" y="29">${groundUnitCode(unit)}</text></g>`;
+// Returns inner symbol markup (no positioning). opts: { echelon, strength }
+function symbolMarkup(side, dimension, kind, unit = null, opts = {}) {
+  const frame = FRAMES[affiliation(side)][dimension];
+  const echelon = opts.echelon ? `<path class="echelon" d="M-3 ${frame.top - 8}L3 ${frame.top - 3}M3 ${frame.top - 8}L-3 ${frame.top - 3}"/>` : '';
+  const installationBar = dimension === 'installation' ? `<rect class="icon-fill" x="-4.5" y="${frame.top - 3.5}" width="9" height="3.5"/>` : '';
+  return `<path class="halo" d="${frame.d}"/><path class="frame" d="${frame.d}"/>${installationBar}${symbolIcon(kind, dimension, frame)}${echelon}${unit && opts.strength !== false ? strengthBar(unit, frame) : ''}`;
 }
 
-function renderGroundMap() {
-  const svg = $('ground-map');
-  if (!svg || !state.game.ground_hexes) return;
-  const groundUnits = Object.values(state.game.ground_units || {});
-  let content = `<defs>
-    <linearGradient id="ground-ocean" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#bfd7da"/><stop offset=".55" stop-color="#97bdc3"/><stop offset="1" stop-color="#719da7"/></linearGradient>
-    <linearGradient id="ground-land" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#d9d7bd"/><stop offset=".5" stop-color="#bfc7a8"/><stop offset="1" stop-color="#9ba990"/></linearGradient>
-    <linearGradient id="ridge-fill" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#75856c" stop-opacity="0"/><stop offset=".5" stop-color="#697962" stop-opacity=".42"/><stop offset="1" stop-color="#536b5f" stop-opacity=".1"/></linearGradient>
-    <pattern id="ground-grid" width="52" height="52" patternUnits="userSpaceOnUse"><path d="M52 0H0V52" fill="none" stroke="#315b63" stroke-opacity=".10" stroke-width=".8"/><path d="M13 0V52M26 0V52M39 0V52M0 13H52M0 26H52M0 39H52" fill="none" stroke="#315b63" stroke-opacity=".035" stroke-width=".5"/></pattern>
-    <clipPath id="taiwan-clip"><path d="${TAIWAN_ISLAND_PATH}"/></clipPath>
-    <filter id="island-shadow" x="-30%" y="-20%" width="160%" height="150%"><feDropShadow dx="3" dy="6" stdDeviation="7" flood-color="#173d45" flood-opacity=".38"/></filter>
-    <filter id="ground-symbol-shadow" x="-80%" y="-80%" width="260%" height="260%"><feDropShadow dx="0" dy="2" stdDeviation="2.2" flood-color="#102a31" flood-opacity=".5"/></filter>
-  </defs>
-  <rect class="ground-ocean" width="520" height="640" fill="url(#ground-ocean)"/>
-  <rect width="520" height="640" fill="url(#ground-grid)"/>
-  <g class="ground-bathymetry">
-    <path d="M140-10C163 86 151 171 135 252C119 334 120 443 151 650"/>
-    <path d="M107-10C132 93 113 190 101 276C91 359 96 468 126 650"/>
-    <path d="M425-10C453 95 448 190 461 276C471 350 466 489 432 650"/>
-    <path d="M463-10C489 112 480 220 492 320C499 407 487 516 465 650"/>
-  </g>
-  <g class="ground-map-caption"><text x="24" y="36">TAIWAN</text><text x="24" y="54">GROUND OPERATIONS</text><path d="M24 65H116"/></g>
-  <g class="ground-sea-labels"><text x="74" y="324" transform="rotate(-90 74 324)">TAIWAN STRAIT</text><text x="474" y="330" transform="rotate(90 474 330)">PHILIPPINE SEA</text></g>
-  <g class="ground-coordinates"><text x="7" y="116">25°N</text><text x="7" y="324">24°N</text><text x="7" y="532">23°N</text><text x="160" y="629">120°E</text><text x="362" y="629">121°E</text></g>
-  <path class="ground-island" d="${TAIWAN_ISLAND_PATH}" fill="url(#ground-land)" filter="url(#island-shadow)"/>
-  <g clip-path="url(#taiwan-clip)">`;
-  let deployedSymbols = '';
-  Object.entries(state.game.ground_hexes).forEach(([id, hex]) => {
-    const layout = GROUND_ZONE_LAYOUT[id];
-    if (!layout) return;
-    const controller = String(hex.controller || 'NONE').toLowerCase();
-    content += `<g class="ground-zone control-${controller}" data-ground-zone="${escapeMarkup(id)}"><path class="ground-zone-shape" d="${layout.path}"/></g>`;
-  });
-  content += `<path class="ground-ridge-fill" d="M274 82C318 145 317 220 329 282C343 348 327 424 298 501L258 562C267 467 248 403 259 331C270 260 255 187 274 82Z"/>
-    <g class="ground-relief"><path d="M286 79C308 144 304 209 320 274C336 340 318 410 292 487C280 521 267 550 251 578"/><path d="M268 115C291 175 282 235 296 298C309 360 296 423 270 493"/><path d="M321 169C341 222 340 281 352 337C363 392 345 445 320 494"/><path d="M232 186C247 223 241 260 249 296M228 329C237 371 235 410 249 449"/></g>
-    <g class="ground-rivers"><path d="M286 170C260 186 245 207 218 222"/><path d="M296 302C270 316 250 335 214 348"/><path d="M295 444C270 458 244 476 211 496"/></g>
-  </g>
-  <path class="ground-coast" d="${TAIWAN_ISLAND_PATH}"/>
-  <g class="ground-islets"><path d="M151 360l10-8 8 9-6 12-11-2Z"/><path d="M163 382l8-5 6 7-4 10-9-2Z"/><path d="M423 384l7-5 6 9-7 9-7-5Z"/><path d="M397 532l8-4 6 8-5 10-8-3Z"/></g>`;
+function miniSymbol(side, dimension, kind, unit = null, opts = {}) {
+  return `<svg viewBox="-22 -20 44 40" aria-hidden="true"><g class="sym ${affiliation(side)}">${symbolMarkup(side, dimension, kind, unit, opts)}</g></svg>`;
+}
 
-  Object.entries(state.game.ground_hexes).forEach(([id, hex]) => {
-    const layout = GROUND_ZONE_LAYOUT[id];
-    if (!layout) return;
-    const feature = hex.beach ? `BEACH · CD ${Number(hex.coastal_defense || 0).toFixed(1)}` : hex.port ? 'PORT / LOGISTICS' : String(hex.terrain || '').replaceAll('/', ' / ').toUpperCase();
-    content += `<g class="ground-zone-copy" data-ground-zone-label="${escapeMarkup(id)}"><text class="ground-zone-label" x="${layout.labelX}" y="${layout.labelY}">${escapeMarkup(layout.title)}</text><text class="ground-zone-terrain" x="${layout.labelX}" y="${layout.labelY + 13}">${escapeMarkup(feature)}</text></g>`;
-    const here = groundUnits.filter((unit) => unit.strength > .05 && unit.hex_id === id);
-    const offsets = groundSymbolOffsets(here.length);
-    here.forEach((unit, index) => {
-      deployedSymbols += groundFormationSymbol(unit, layout.unitX + offsets[index].x, layout.unitY + offsets[index].y);
+// ── Map views (pan / zoom via viewBox) ──────────────────────────────────────
+const views = {};
+
+function initMapViews() {
+  [['theater', $('map'), state.geo.theater], ['ground', $('ground-map'), state.geo.ground]].forEach(([key, svg, geo]) => {
+    const { width, height } = geo.projection;
+    views[key] = { svg, full: { x: 0, y: 0, w: width, h: height }, view: { x: 0, y: 0, w: width, h: height } };
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    attachPanZoom(key);
+    svg.addEventListener('click', () => {
+      state.pinned = null; state.selected = null;
+      svg.querySelectorAll('.sym.selected').forEach((node) => node.classList.remove('selected'));
+      hideTooltip();
+      renderForces();
     });
   });
-
-  content += deployedSymbols;
-  content += `<g class="ground-scale" transform="translate(26 582)"><text x="0" y="-12">APPROX. SCALE</text><path d="M0 0H88M0-5V5M44-5V5M88-5V5"/><text x="0" y="17">0</text><text x="40" y="17">30</text><text x="81" y="17">60 KM</text></g>
-  <g class="ground-orientation" transform="translate(476 66)"><path d="M0 24V-18M0-18l-6 12M0-18l6 12"/><text x="0" y="-27">N</text></g>`;
-  svg.innerHTML = content;
-
-  const activeRed = groundUnits.filter((unit) => unit.side === 'RED' && unit.strength > .05);
-  const reserves = groundUnits.filter((unit) => unit.side === 'RED' && unit.reserve_strength > .05);
-  $('ground-summary').innerHTML = `<div><span>PLA SUPPLY ASHORE</span><strong>${activeRed.length ? `${(Number(state.game.metrics.red_ground_supply || 0) * 100).toFixed(0)}%` : 'No lodgment'}</strong></div><div><span>AVAILABLE PLA RESERVES</span><strong>${reserves.length} formations</strong></div>`;
-  $('ground-roster').innerHTML = groundUnits.filter((unit) => unit.strength > .05 || unit.reserve_strength > .05).map((unit) => {
-    const deployed = unit.strength > .05;
-    const location = deployed ? state.game.ground_hexes[unit.hex_id]?.name : 'Awaiting lift';
-    return `<article class="ground-card side-${unit.side.toLowerCase()} ${deployed ? '' : 'reserve'}"><header><b>${escapeMarkup(unit.name)}</b><span>${groundUnitCode(unit)}</span></header><small>${escapeMarkup(location)} · ${deployed ? `${Number(unit.strength).toFixed(1)} strength · ${(Number(unit.supply) * 100).toFixed(0)}% supply` : `${Number(unit.reserve_strength).toFixed(1)} reserve strength · ${Number(unit.lift_cost).toFixed(1)}k tons/strength`}</small></article>`;
-  }).join('');
+  views.theater.home = boxOf(state.geo.theater.projection, [111, 10.5], [149, 36.8]);
+  views.ground.home = boxOf(state.geo.ground.projection, [118.9, 21.85], [122.75, 25.4]);
+  fitView('theater', views.theater.home);
+  fitView('ground', views.ground.home);
 }
 
-function optionList(items, value = 'id', label = 'name') { return items.map((item) => `<option value="${item[value]}">${item[label]}</option>`).join(''); }
+function boxOf(projection, [west, south], [east, north]) {
+  const [x0, y0] = projectWith(projection, [west, north]);
+  const [x1, y1] = projectWith(projection, [east, south]);
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
+const stageAspect = () => { const stage = $('map-stage'); return stage.clientWidth && stage.clientHeight ? stage.clientWidth / stage.clientHeight : 1.4; };
+
+// Fit a content box into the viewport, matching the viewport's aspect ratio so nothing letterboxes.
+function fitView(key, box) {
+  const aspect = stageAspect();
+  const view = views[key].view;
+  if (box.w / box.h > aspect) { view.w = box.w; view.h = box.w / aspect; } else { view.h = box.h; view.w = box.h * aspect; }
+  view.x = box.x + box.w / 2 - view.w / 2;
+  view.y = box.y + box.h / 2 - view.h / 2;
+  clampView(key);
+  applyView(key);
+}
+
+function projectWith(p, [lon, lat]) {
+  const mercY = (value) => Math.log(Math.tan(Math.PI / 4 + value * Math.PI / 360));
+  const kx = p.width / (p.east - p.west);
+  const k = kx * 180 / Math.PI;
+  return [(lon - p.west) * kx, (mercY(p.north) - mercY(lat)) * k];
+}
+
+function applyView(key) {
+  const { svg, view, full } = views[key];
+  svg.setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`);
+  // Symbols and labels keep a near-constant on-screen size; symbols grow slightly as you zoom in.
+  const stage = $('map-stage');
+  const pxPerUnit = (stage.clientWidth || 1000) / view.w;
+  const zoom = full.w / view.w;
+  const narrow = Math.min(1, Math.sqrt((stage.clientWidth || 1000) / 900));
+  svg.style.setProperty('--sym', String((1.08 * narrow / pxPerUnit) * Math.pow(zoom, 0.18)));
+  svg.style.setProperty('--k', String(1 / pxPerUnit));
+  svg.classList.toggle('zoomed', pxPerUnit > 1.25);
+  svg.classList.toggle('zoomed-far', pxPerUnit > 2.4);
+  if (key === state.map) renderScalebar();
+}
+
+function clampView(key) {
+  const { view, full } = views[key];
+  const aspect = stageAspect();
+  const cx = view.x + view.w / 2;
+  const cy = view.y + view.h / 2;
+  view.w = Math.max(full.w / 10, Math.min(Math.max(full.w, full.h * aspect) * 1.05, view.w));
+  view.h = view.w / aspect;
+  view.x = cx - view.w / 2;
+  view.y = cy - view.h / 2;
+  const slackX = Math.max(0, view.w - full.w) / 2 + view.w * .25;
+  const slackY = Math.max(0, view.h - full.h) / 2 + view.h * .25;
+  view.x = Math.max(full.x - slackX, Math.min(full.w - view.w + slackX, view.x));
+  view.y = Math.max(full.y - slackY, Math.min(full.h - view.h + slackY, view.y));
+}
+
+function zoomTo(key, cx, cy, factor) {
+  const { view } = views[key];
+  const w = view.w / factor;
+  const h = view.h / factor;
+  view.x = cx - (cx - view.x) * (w / view.w);
+  view.y = cy - (cy - view.y) * (h / view.h);
+  view.w = w; view.h = h;
+  clampView(key);
+  applyView(key);
+}
+
+function centerOn(key, x, y, minZoom = 1.6) {
+  const { view, full } = views[key];
+  if (full.w / view.w < minZoom) { view.w = full.w / minZoom; view.h = full.h / minZoom; }
+  view.x = x - view.w / 2;
+  view.y = y - view.h / 2;
+  clampView(key);
+  applyView(key);
+}
+
+function svgPoint(svg, clientX, clientY) {
+  const matrix = svg.getScreenCTM();
+  if (!matrix) return { x: 0, y: 0 };
+  const point = new DOMPoint(clientX, clientY).matrixTransform(matrix.inverse());
+  return { x: point.x, y: point.y };
+}
+
+function attachPanZoom(key) {
+  const { svg } = views[key];
+  let drag = null;
+  let lastDragEnd = 0;
+  // Swallow the click that follows a pan so it doesn't clear the selection or pin an area.
+  svg.addEventListener('click', (event) => { if (performance.now() - lastDragEnd < 80) event.stopPropagation(); }, { capture: true });
+  svg.addEventListener('wheel', (event) => {
+    event.preventDefault();
+    const point = svgPoint(svg, event.clientX, event.clientY);
+    zoomTo(key, point.x, point.y, event.deltaY < 0 ? 1.18 : 1 / 1.18);
+  }, { passive: false });
+  svg.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0 || event.target.closest('.sym')) return;
+    drag = { start: svgPoint(svg, event.clientX, event.clientY), x: event.clientX, y: event.clientY, moved: false };
+  });
+  svg.addEventListener('pointermove', (event) => {
+    if (!drag) return;
+    if (!drag.moved && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 4) return;
+    if (!drag.moved) { drag.moved = true; svg.setPointerCapture(event.pointerId); svg.classList.add('dragging'); hideTooltip(); }
+    const now = svgPoint(svg, event.clientX, event.clientY);
+    views[key].view.x -= now.x - drag.start.x;
+    views[key].view.y -= now.y - drag.start.y;
+    clampView(key);
+    applyView(key);
+  });
+  const end = (event) => {
+    if (drag?.moved) {
+      svg.classList.remove('dragging');
+      svg.releasePointerCapture?.(event.pointerId);
+      lastDragEnd = performance.now();
+    }
+    drag = null;
+  };
+  svg.addEventListener('pointerup', end);
+  svg.addEventListener('pointercancel', end);
+}
+
+function renderScalebar() {
+  const geo = state.map === 'theater' ? state.geo.theater : state.geo.ground;
+  const { svg, view } = views[state.map] || {};
+  const bar = document.querySelector('#map-cartouche .scalebar');
+  if (!svg || !bar || !svg.clientWidth) return;
+  const scale = svg.clientWidth / view.w;
+  const kmPerScreenPx = geo.kmPerPx / scale;
+  const target = kmPerScreenPx * 110;
+  const nice = [10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000].find((value) => value >= target * .6) || 2000;
+  bar.innerHTML = `<i style="width:${(nice / kmPerScreenPx).toFixed(0)}px"></i><span>${nice} km</span>`;
+}
+
+// ── Shared map defs ─────────────────────────────────────────────────────────
+const DEPTH_FILLS = { 50: '#d6e6ec', 100: '#cfe1e8', 200: '#c9dde5', 1000: '#bdd4de', 2000: '#b1cbd7', 4000: '#a5c2d0', 6000: '#98b8c8' };
+const ELEVATION_FILLS = { 500: 'rgba(196,178,134,.16)', 1000: 'rgba(181,158,108,.2)', 2000: 'rgba(160,134,86,.22)', 3000: 'rgba(132,104,62,.26)' };
+
+function mapDefs(id) {
+  return `<defs>
+    ${id === 'th'
+    ? '<pattern id="th-contested" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><path d="M0 0V10" stroke="rgba(150,105,30,.28)" stroke-width="1.2"/></pattern>'
+    : '<pattern id="gr-contested" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="7" height="7" fill="rgba(183,134,42,.1)"/><path d="M0 0V7" stroke="rgba(160,112,30,.55)" stroke-width="2.2"/></pattern>'}
+    <pattern id="${id}-unknown" width="3" height="3" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="3" fill="#fff"/><path d="M0 0V3" stroke="#1b1d1f" stroke-width="1"/></pattern>
+    <clipPath id="${id}-frame"><rect width="${id === 'th' ? state.geo.theater.projection.width : state.geo.ground.projection.width}" height="${id === 'th' ? state.geo.theater.projection.height : state.geo.ground.projection.height}"/></clipPath>
+  </defs>`;
+}
+
+function baseLayers(geo, id) {
+  const { width, height } = geo.projection;
+  const depths = geo.depths.map((layer) => `<path class="depth" d="${layer.d}" fill="${DEPTH_FILLS[layer.value] || '#a0bccb'}"/>`).join('');
+  const graticuleLabels = geo.graticule.labels.map((label) => (label.axis === 'x'
+    ? `<text class="graticule-label" x="${label.x + 3}" y="${height - 5}" style="font-size:calc(9px * var(--k, 1))">${label.text}</text>`
+    : `<text class="graticule-label" x="4" y="${label.y - 3}" style="font-size:calc(9px * var(--k, 1))">${label.text}</text>`)).join('');
+  return `<g clip-path="url(#${id}-frame)">
+    <rect class="water" width="${width}" height="${height}"/>
+    ${depths}
+    <path class="graticule" d="${geo.graticule.d}"/>
+    <path class="land" d="${geo.land}"/>
+    ${geo.countries.CHN ? `<path class="land-cn" d="${geo.countries.CHN}"/>` : ''}
+    ${(geo.elevations || []).map((layer) => `<path class="elevation" d="${layer.d}" fill="${ELEVATION_FILLS[layer.value] || 'transparent'}"/>`).join('')}
+    <image class="relief" href="${geo.relief.href}" width="${width}" height="${height}" preserveAspectRatio="none"/>
+    <path class="coast" d="${geo.land}"/>
+    <path class="border" d="${geo.borders}"/>
+    ${graticuleLabels}
+  </g>`;
+}
+
+const scaled = (size) => `style="font-size:calc(${size}px * var(--k, 1))"`;
+
+function labelLayer(geo) {
+  const labels = geo.labels.map((label) => {
+    const cls = `${label.kind === 'country' ? `country-label${label.small ? ' small' : ''}` : label.kind === 'water' ? 'water-label' : 'island-label'}${label.minor ? ' minor' : ''}`;
+    const size = label.kind === 'country' ? (label.small ? 10 : 13) : label.kind === 'water' ? 11 : 9.5;
+    const rotate = label.rotate ? ` transform="rotate(${label.rotate} ${label.at[0]} ${label.at[1]})"` : '';
+    return `<text class="${cls}" x="${label.at[0]}" y="${label.at[1]}"${rotate} ${scaled(size)}>${escapeMarkup(label.text)}</text>`;
+  }).join('');
+  const places = geo.places.filter((place) => place.at[0] >= 0 && place.at[1] >= 0 && place.at[0] <= geo.projection.width && place.at[1] <= geo.projection.height).map((place) => `<g class="place" style="transform:translate(${place.at[0]}px,${place.at[1]}px) scale(var(--sym,1))"><circle class="place-dot${place.capital ? ' capital' : ' minor'}" r="${place.capital ? 2.8 : 2.2}"/><text class="place-label${place.capital ? '' : ' minor'}" x="5" y="3.5">${escapeMarkup(place.name)}</text></g>`).join('');
+  return labels + places;
+}
+
+// Lay out n symbols in a compact grid, centered or stacked to one side of the origin (symbol units).
+function gridOffsets(count, { columns = 3, dx = 36, dy = 40, origin = 'center' } = {}) {
+  const cols = Math.min(columns, Math.max(1, count));
+  const rows = Math.ceil(count / cols);
+  return Array.from({ length: count }, (_, index) => {
+    const col = index % cols;
+    const row = Math.floor(index / cols);
+    const cx = (col - (cols - 1) / 2) * dx;
+    const cy = (row - (rows - 1) / 2) * dy;
+    if (origin === 'right') return { x: 30 + col * dx, y: cy };
+    if (origin === 'left') return { x: -30 - col * dx, y: cy };
+    if (origin === 'below') return { x: cx, y: 36 + row * dy };
+    if (origin === 'above') return { x: cx, y: -36 - row * dy };
+    return { x: cx, y: cy };
+  });
+}
+
+function unitSymbolAt(unit, offset, kind = 'unit') {
+  const dimension = unitDimension(unit);
+  const selected = state.selected?.id === unit.id ? ' selected' : '';
+  const depleted = !unitIsActive(unit) ? ' depleted' : '';
+  const strength = unit.strength == null ? 'strength unknown' : `${formatNumber(unit.strength, 1)} of ${formatNumber(unit.max_strength, 1)} strength`;
+  return `<g class="sym ${affiliation(unit.side)}${selected}${depleted}" transform="translate(${offset.x} ${offset.y})" data-kind="${kind}" data-id="${escapeMarkup(unit.id)}" tabindex="0" role="button" aria-label="${escapeMarkup(unit.name)}, ${SIDE_META[unit.side].short}, ${strength}"><rect class="hit" x="-18" y="-18" width="36" height="40"/>${symbolMarkup(unit.side, dimension, unit.kind, unit, { echelon: dimension === 'land' })}</g>`;
+}
+
+const cluster = (x, y, inner) => `<g class="cluster" style="transform:translate(${x}px,${y}px) scale(var(--sym,1))">${inner}</g>`;
+
+// ── Theater map ─────────────────────────────────────────────────────────────
+function renderTheaterMap() {
+  const geo = state.geo.theater;
+  const game = state.game;
+  const svg = $('map');
+  const units = Object.values(game.units).filter(unitIsActive);
+  const areaMarkup = Object.entries(geo.areas).map(([id, area]) => {
+    const sides = new Set(units.filter((unit) => unit.region === id).map((unit) => unit.side));
+    const held = sides.size === 2 ? 'held-both' : sides.has('BLUE') ? 'held-blue' : sides.has('RED') ? 'held-red' : '';
+    return `<path class="area ${held}${id === 'taiwan' ? ' objective' : ''}" d="${area.d}" data-area="${id}" ${held === 'held-both' ? 'style="fill:url(#th-contested)"' : ''}/>`;
+  }).join('');
+  const areaLabels = Object.entries(geo.areas).map(([id, area]) => `<text class="area-label${id === 'taiwan' ? ' objective' : ''}" x="${area.label[0]}" y="${area.label[1]}"${area.rotate ? ` transform="rotate(${area.rotate} ${area.label[0]} ${area.label[1]})"` : ''} ${scaled(11.5)}>${escapeMarkup(game.regions[id]?.name || humanize(id))}</text>`).join('');
+
+  // Bases with their based air formations stacked beside them; everything else at the area anchor.
+  let symbols = '';
+  const placedUnits = new Set();
+  Object.entries(game.bases).forEach(([id, base]) => {
+    const spot = geo.bases[id];
+    if (!spot) return;
+    const based = units.filter((unit) => unit.domain === 'air' && unit.base_id === id && unit.region === base.region);
+    based.forEach((unit) => placedUnits.add(unit.id));
+    const offsets = gridOffsets(based.length, { columns: 2, origin: spot.stack === 'left' ? 'left' : spot.stack === 'above' ? 'above' : spot.stack === 'below' ? 'below' : 'right' });
+    const damaged = Number(base.damage || 0) > .005;
+    const baseSym = `<g class="sym ${affiliation(base.side)}${state.selected?.id === id ? ' selected' : ''}" data-kind="base" data-id="${escapeMarkup(id)}" tabindex="0" role="button" aria-label="${escapeMarkup(base.name)}"><rect class="hit" x="-14" y="-16" width="28" height="30"/>${symbolMarkup(base.side, 'installation', base.kind)}</g>`;
+    // Label on the side opposite the stacked formations.
+    const labelPos = { left: 'x="13" y="4" style="text-anchor:start"', right: 'x="-13" y="4" style="text-anchor:end"', above: 'x="0" y="24" style="text-anchor:middle"', below: 'x="0" y="-16" style="text-anchor:middle"' }[spot.stack] || 'x="0" y="24"';
+    const label = `<text class="base-label" ${labelPos}>${escapeMarkup(spot.label)}${damaged ? `<tspan class="damage-text" dx="4">−${(Number(base.damage) * 100).toFixed(0)}%</tspan>` : ''}</text>`;
+    symbols += cluster(spot.at[0], spot.at[1], `<g transform="scale(.8)">${baseSym}</g>${label}${based.map((unit, index) => unitSymbolAt(unit, offsets[index])).join('')}`);
+  });
+  Object.entries(geo.areas).forEach(([id, area]) => {
+    const here = units.filter((unit) => unit.region === id && !placedUnits.has(unit.id));
+    if (!here.length) return;
+    const offsets = gridOffsets(here.length, { columns: 3 });
+    symbols += cluster(area.anchor[0], area.anchor[1], here.map((unit, index) => unitSymbolAt(unit, offsets[index])).join(''));
+  });
+
+  svg.innerHTML = `${mapDefs('th')}${baseLayers(geo, 'th')}
+    <g class="areas">${areaMarkup}</g>
+    <g class="labels">${labelLayer(geo)}${areaLabels}</g>
+    <g class="symbols">${symbols}</g>
+    <g id="event-overlay" class="replay-overlay side-neutral" aria-hidden="true"></g>`;
+  attachSymbolInteractions(svg);
+  attachAreaInteractions(svg, 'area', (id) => game.regions[id]?.adjacent || []);
+  restorePinned();
+}
+
+// ── Taiwan ground map ───────────────────────────────────────────────────────
+function renderGroundMap() {
+  const geo = state.geo.ground;
+  const game = state.game;
+  const svg = $('ground-map');
+  const groundUnits = Object.values(game.ground_units || {});
+  const zones = Object.entries(geo.zones).filter(([id]) => game.ground_hexes?.[id]);
+  const zoneFill = zones.map(([id, zone]) => {
+    const controller = String(game.ground_hexes[id].controller || 'none').toLowerCase();
+    return `<path class="zone control-${controller}" d="${zone.d}" ${controller === 'contested' ? 'style="fill:url(#gr-contested)"' : ''}/>`;
+  }).join('');
+  const zoneLines = zones.map(([, zone]) => `<path class="zone-line" d="${zone.d}"/>`).join('');
+  const zoneHits = zones.map(([id, zone]) => `<path class="zone-hit" d="${zone.d}" data-zone="${id}"/>`).join('');
+  const zoneLabels = zones.map(([id, zone]) => {
+    const hex = game.ground_hexes[id];
+    const feature = hex.beach ? `Beach · coastal def. ${formatNumber(hex.coastal_defense, 1)}` : hex.port ? 'Port' : humanize(String(hex.terrain || '').split('/')[0]);
+    const align = zone.align ? ` style="text-anchor:${zone.align}"` : '';
+    return `<g class="zone-callout" style="transform:translate(${zone.label[0]}px,${zone.label[1]}px) scale(var(--k,1))"><text class="zone-label"${align}>${escapeMarkup(hex.name)}</text><text class="zone-sub" y="12"${align}>${escapeMarkup(feature)}</text></g>`;
+  }).join('');
+  const peaks = geo.peaks.map((peak) => cluster(peak.at[0], peak.at[1], `<path class="peak" d="M0 -4L4 3H-4Z"/><text class="peak-label" x="6" y="3">${escapeMarkup(peak.name)} ${peak.elevation} m</text>`)).join('');
+  const ports = geo.ports.map((port) => cluster(port.at[0], port.at[1], `<g><title>${escapeMarkup(port.name)}</title><circle r="5.5" fill="#fff" stroke="#1f3a5f" stroke-width="1"/><path class="port-icon" d="${ANCHOR}" transform="scale(.62)"/></g>`)).join('');
+
+  let symbols = '';
+  zones.forEach(([id, zone]) => {
+    const here = groundUnits.filter((unit) => unit.strength > .05 && unit.hex_id === id);
+    if (!here.length) return;
+    const offsets = gridOffsets(here.length, { columns: 3, dx: 38, dy: 44 });
+    symbols += cluster(zone.anchor[0], zone.anchor[1], here.map((unit, index) => unitSymbolAt(unit, offsets[index], 'ground')).join(''));
+  });
+  const reserves = groundUnits.filter((unit) => unit.side === 'RED' && unit.strength <= .05 && unit.reserve_strength > .05);
+  if (reserves.length && geo.assembly) {
+    const offsets = gridOffsets(reserves.length, { columns: 3, dx: 38, dy: 44 });
+    const asReserve = (unit) => ({ ...unit, strength: unit.reserve_strength });
+    symbols += cluster(geo.assembly.at[0], geo.assembly.at[1], `<text class="zone-label" x="0" y="${-Math.ceil(reserves.length / 3) * 22 - 26}">${escapeMarkup(geo.assembly.label)}</text><text class="zone-sub" x="0" y="${-Math.ceil(reserves.length / 3) * 22 - 14}">${reserves.length} formation${reserves.length === 1 ? '' : 's'} awaiting lift</text>${reserves.map((unit, index) => unitSymbolAt(asReserve(unit), offsets[index], 'ground')).join('')}`);
+  }
+
+  svg.innerHTML = `${mapDefs('gr')}${baseLayers(geo, 'gr')}
+    <g clip-path="url(#gr-frame)">${zoneFill}<path class="county" d="${geo.counties}"/>${zoneLines}${zoneHits}</g>
+    <g class="labels">${labelLayer(geo)}${zoneLabels}${peaks}${ports}</g>
+    <g class="symbols">${symbols}</g>`;
+  attachSymbolInteractions(svg);
+  attachAreaInteractions(svg, 'zone', (id) => game.ground_hexes[id]?.adjacent || []);
+  restorePinned();
+}
+
+// ── Cartouche & legend ──────────────────────────────────────────────────────
+function renderCartouche() {
+  const theater = state.map === 'theater';
+  // SVG elements have no .hidden property, so toggle the attribute directly.
+  $('map').toggleAttribute('hidden', !theater);
+  $('ground-map').toggleAttribute('hidden', theater);
+  document.querySelectorAll('#map-switch [data-map]').forEach((button) => button.setAttribute('aria-selected', String(button.dataset.map === state.map)));
+  const supply = Number(state.game.metrics.red_ground_supply || 0);
+  $('map-cartouche').classList.toggle('right', !theater);
+  $('map-cartouche').innerHTML = theater
+    ? `<h2>Western Pacific — operational map</h2><p>Operational areas (≈600 km) are schematic; dashed lines are area boundaries. Air formations are shown at their bases. Hover an area to see the areas linked to it.</p><div class="scalebar"></div>`
+    : `<h2>Taiwan — ground operations</h2><p>Ground areas follow county boundaries; the Central Mountains area is terrain above 900 m. Formations move one linked area per turn.${Number(state.game.metrics.red_lodgment) > 0 ? ` PLA supply ashore ${(supply * 100).toFixed(0)}%.` : ''}</p><div class="scalebar"></div>`;
+  renderLegend();
+  renderScalebar();
+}
+
+function renderLegend() {
+  const theater = state.map === 'theater';
+  const open = $('map-legend').querySelector('details')?.open ?? false;
+  const item = (svg, label) => `<span class="legend-item">${svg}${label}</span>`;
+  const swatch = (style, label) => `<span class="legend-item"><i class="legend-swatch" style="${style}"></i>${label}</span>`;
+  const demo = { max_strength: 1, strength: .6 };
+  const body = theater ? `
+    <h4>Frames (blue = coalition, red = PLA)</h4>
+    ${item(miniSymbol('BLUE', 'air', 'fighter_5g', null), 'Air · F fighter, B bomber, P patrol')}
+    ${item(miniSymbol('RED', 'air', 'bomber', null), 'Hostile air')}
+    ${item(miniSymbol('BLUE', 'sea', 'carrier', null), 'Surface · CV, SAG, AMPH')}
+    ${item(miniSymbol('RED', 'sea', 'amphibious', null), 'Hostile surface')}
+    ${item(miniSymbol('BLUE', 'sub', 'nuclear_submarine', null), 'Subsurface · SSN, SSK')}
+    ${item(miniSymbol('RED', 'sub', 'diesel_submarine', null), 'Hostile subsurface')}
+    <h4>Installations & status</h4>
+    ${item(miniSymbol('BLUE', 'installation', 'airbase'), 'Air base')}
+    ${item(miniSymbol('BLUE', 'installation', 'naval_base'), 'Naval base')}
+    ${item(miniSymbol('BLUE', 'sea', 'surface', demo), 'Bar = remaining strength')}
+    ${swatch('border-color:#2f5262;border-style:dashed;background:transparent', 'Operational area')}`
+    : `
+    <h4>Ground formations (brigades)</h4>
+    ${item(miniSymbol('BLUE', 'land', 'infantry', null, { echelon: true }), 'Infantry')}
+    ${item(miniSymbol('BLUE', 'land', 'mechanized', null, { echelon: true }), 'Mechanized')}
+    ${item(miniSymbol('BLUE', 'land', 'armor', null, { echelon: true }), 'Armor')}
+    ${item(miniSymbol('BLUE', 'land', 'artillery', null, { echelon: true }), 'Artillery')}
+    ${item(miniSymbol('RED', 'land', 'airborne', null, { echelon: true }), 'Airborne / marine')}
+    ${item(miniSymbol('RED', 'land', 'engineer', null, { echelon: true }), 'Engineer')}
+    <h4>Area control</h4>
+    ${swatch('background:rgba(43,108,176,.16);border-color:#2b3a40', 'Taiwan')}
+    ${swatch('background:rgba(179,58,46,.24);border-color:#2b3a40', 'PLA')}
+    ${swatch('background:repeating-linear-gradient(45deg,rgba(160,112,30,.5) 0 2px,transparent 2px 5px);border-color:#2b3a40', 'Contested')}
+    ${swatch('background:rgba(160,134,86,.22);border-color:transparent', 'Terrain above 1,000 m')}`;
+  $('map-legend').innerHTML = `<details${open ? ' open' : ''}><summary>Legend</summary><div class="legend-grid">${body}</div></details>`;
+}
+
+// ── Interaction: symbols, areas, tooltips ───────────────────────────────────
+function lookup(kind, id) {
+  if (kind === 'base') return state.game.bases[id];
+  if (kind === 'ground') return state.game.ground_units?.[id];
+  if (kind === 'unit') return state.game.units[id];
+  if (kind === 'area') return state.game.regions[id];
+  if (kind === 'zone') return state.game.ground_hexes?.[id];
+  return null;
+}
+
+function attachSymbolInteractions(svg) {
+  svg.querySelectorAll('.sym[data-kind]').forEach((symbol) => {
+    const { kind, id } = symbol.dataset;
+    symbol.addEventListener('pointerenter', (event) => showTooltip(kind, id, event));
+    symbol.addEventListener('pointermove', (event) => showTooltip(kind, id, event));
+    symbol.addEventListener('pointerleave', restorePinned);
+    symbol.addEventListener('focus', () => showTooltip(kind, id, null, symbol));
+    symbol.addEventListener('blur', restorePinned);
+    symbol.addEventListener('click', (event) => { event.stopPropagation(); select(kind, id, event); });
+    symbol.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); select(kind, id, null, symbol); } });
+  });
+}
+
+function attachAreaInteractions(svg, kind, linksOf) {
+  const attr = kind === 'area' ? 'data-area' : 'data-zone';
+  const nodes = [...svg.querySelectorAll(`[${attr}]`)];
+  const byId = Object.fromEntries(nodes.map((node) => [node.getAttribute(attr), node]));
+  nodes.forEach((node) => {
+    const id = node.getAttribute(attr);
+    node.addEventListener('pointerenter', () => linksOf(id).forEach((other) => byId[other]?.classList.add('linked')));
+    node.addEventListener('pointerleave', () => nodes.forEach((other) => other.classList.remove('linked')));
+    node.addEventListener('click', (event) => { event.stopPropagation(); select(kind, id, event); });
+  });
+}
+
+function select(kind, id, event, node = null) {
+  state.pinned = { kind, id };
+  state.selected = { kind, id };
+  const svg = state.map === 'theater' ? $('map') : $('ground-map');
+  svg.querySelectorAll('.sym.selected').forEach((item) => item.classList.remove('selected'));
+  svg.querySelector(`.sym[data-kind="${kind}"][data-id="${CSS.escape(id)}"]`)?.classList.add('selected');
+  showTooltip(kind, id, event, node, true);
+  renderForces();
+}
+
+function tooltipMarkup(kind, item) {
+  const rows = (pairs) => `<dl class="tooltip-rows">${pairs.filter(Boolean).map(([k, v]) => `<dt>${escapeMarkup(k)}</dt><dd>${escapeMarkup(v)}</dd>`).join('')}</dl>`;
+  const header = (icon, type, name) => `<div class="tooltip-header">${icon}<div class="tooltip-title"><span>${escapeMarkup(type)}</span><strong>${escapeMarkup(name)}</strong></div><button class="tooltip-close" type="button" aria-label="Close details">×</button></div>`;
+  const hint = '<div class="tooltip-hint">Click to pin · Esc to close</div>';
+  if (kind === 'unit') {
+    const known = item.strength != null;
+    const target = state.game.regions[item.target]?.name || state.game.bases[item.target]?.name || item.target;
+    const base = item.base_id ? state.game.bases[item.base_id]?.name : null;
+    return header(miniSymbol(item.side, unitDimension(item), item.kind, null), `${SIDE_META[item.side].short} · ${KIND_LABEL[item.kind] || humanize(item.kind)}`, item.name)
+      + rows([
+        ['Location', `${state.game.regions[item.region]?.name || item.region}${base ? ` · ${base}` : ''}`],
+        ['Strength', known ? `${formatNumber(item.strength, 1)} / ${formatNumber(item.max_strength, 1)}` : 'Unknown (not identified)'],
+        ['Readiness', item.readiness != null ? `${(Number(item.readiness) * 100).toFixed(0)}%` : 'Unknown'],
+        ['Mission', humanize(item.mission)],
+        target && ['Target', target],
+        item.kind === 'amphibious' && ['Lift', `${formatNumber(item.capacity, 1)} per turn`],
+        item.counter_scale && ['Counter scale', item.counter_scale],
+        item.contact_state && ['Contact', `${item.contact_state} · ${(Number(item.contact_confidence || 0) * 100).toFixed(0)}% confidence`],
+        item.weapons && Object.keys(item.weapons).length && ['Magazines', Object.entries(item.weapons).map(([name, amount]) => `${humanize(name)} ${formatNumber(amount)}`).join(', ')],
+      ])
+      + (known ? `<div class="tooltip-bar"><i style="width:${pct(item.strength, item.max_strength)}%"></i></div>` : '') + hint;
+  }
+  if (kind === 'ground') {
+    const hex = state.game.ground_hexes[item.hex_id];
+    const deployed = item.strength > .05;
+    return header(miniSymbol(item.side, 'land', item.kind, null, { echelon: true }), `${SIDE_META[item.side].short} · ${KIND_LABEL[item.kind] || humanize(item.kind)}`, item.name)
+      + rows([
+        ['Location', deployed ? (hex?.name || item.hex_id) : 'Awaiting amphibious lift'],
+        ['Strength', deployed ? `${formatNumber(item.strength, 1)} / ${formatNumber(item.max_strength, 1)}` : `${formatNumber(item.reserve_strength, 1)} in reserve`],
+        deployed && ['Supply', `${(Number(item.supply) * 100).toFixed(0)}%`],
+        ['Mission', humanize(item.mission)],
+        ['Attack / defense', `${formatNumber(item.attack, 2)} / ${formatNumber(item.defense, 2)}`],
+        !deployed && ['Lift cost', `${formatNumber(item.lift_cost, 1)}k tons per strength`],
+        item.target && ['Target', state.game.ground_hexes[item.target]?.name || item.target],
+      ])
+      + `<div class="tooltip-bar"><i style="width:${pct(deployed ? item.strength : item.reserve_strength, item.max_strength)}%"></i></div>` + hint;
+  }
+  if (kind === 'base') {
+    const assigned = Object.values(state.game.units).filter((unit) => unit.base_id === item.id && unitIsActive(unit));
+    const effectiveness = Math.max(0, 1 - Number(item.damage || 0));
+    const latest = [...state.game.events].reverse().find((event) => event.data?.target === item.id && ['MISSILES', 'AIR', 'REPAIR'].includes(event.phase));
+    return header(miniSymbol(item.side, 'installation', item.kind), `${SIDE_META[item.side].short} · ${item.kind === 'naval_base' ? 'Naval base' : 'Air base'}`, item.name)
+      + rows([
+        ['Area', state.game.regions[item.region]?.name || item.region],
+        ['Operational', `${(effectiveness * 100).toFixed(0)}% (${(Number(item.damage || 0) * 100).toFixed(0)}% damage)`],
+        ['Capacity', item.kind === 'naval_base' ? `${item.port_capacity || 0} groups` : `${assigned.length} / ${item.capacity} formations`],
+        ['Defenses', `SAM ${formatNumber(item.sam, 1)} · hardening ${formatNumber(item.hardening, 1)}`],
+        ['Hosting', assigned.length ? assigned.map((unit) => unit.name).join(', ') : 'None'],
+        latest && ['Latest', latest.message],
+      ])
+      + `<div class="tooltip-bar"><i style="width:${effectiveness * 100}%"></i></div>` + hint;
+  }
+  if (kind === 'area') {
+    const id = state.pinned?.id;
+    const here = Object.values(state.game.units).filter((unit) => unit.region === id && unitIsActive(unit));
+    return header('', `Operational area · ${humanize(item.terrain)}`, item.name)
+      + rows([
+        ['Formations', `${here.filter((unit) => unit.side === 'BLUE').length} coalition · ${here.filter((unit) => unit.side === 'RED').length} PLA`],
+        ['ASW detection', `×${formatNumber(item.asw_detection, 2)}`],
+        ['Linked areas', item.adjacent.map((other) => state.game.regions[other]?.name || other).join(', ')],
+      ]) + hint;
+  }
+  if (kind === 'zone') {
+    return header('', `Ground area · ${humanize(item.terrain)}`, item.name)
+      + rows([
+        ['Control', humanize(String(item.controller || 'none').toLowerCase())],
+        item.beach && ['Beach', `Coastal defense ${formatNumber(item.coastal_defense, 1)}`],
+        item.port && ['Port', 'Yes — usable for captured-port insertion'],
+        ['Control value', formatNumber(item.control_value, 2)],
+        ['Linked areas', item.adjacent.map((other) => state.game.ground_hexes[other]?.name || other).join(', ')],
+      ]) + hint;
+  }
+  return '';
+}
+
+function showTooltip(kind, id, event, node = null, pinned = false) {
+  if (!pinned && state.pinned && !(state.pinned.kind === kind && state.pinned.id === id) && event?.type === 'pointermove') return;
+  const item = lookup(kind, id);
+  if (!item) return;
+  const tooltip = $('map-tooltip');
+  tooltip.innerHTML = tooltipMarkup(kind, { ...item, id });
+  tooltip.hidden = false;
+  tooltip.classList.toggle('is-pinned', pinned || (state.pinned?.kind === kind && state.pinned?.id === id));
+  const stage = $('map-stage').getBoundingClientRect();
+  const anchor = (node || event?.target?.closest?.('.sym'))?.getBoundingClientRect();
+  const x = Number.isFinite(event?.clientX) ? event.clientX : anchor ? anchor.right : stage.left + stage.width / 2;
+  const y = Number.isFinite(event?.clientY) ? event.clientY : anchor ? anchor.top + anchor.height / 2 : stage.top + stage.height / 2;
+  let left = x - stage.left + 16;
+  if (left + tooltip.offsetWidth > stage.width - 10) left = x - stage.left - tooltip.offsetWidth - 16;
+  const top = Math.max(10, Math.min(stage.height - tooltip.offsetHeight - 10, y - stage.top - tooltip.offsetHeight / 2));
+  tooltip.style.left = `${Math.max(10, left)}px`;
+  tooltip.style.top = `${top}px`;
+}
+
+function hideTooltip() { $('map-tooltip').hidden = true; }
+
+function restorePinned() {
+  if (!state.pinned) return hideTooltip();
+  const svg = state.map === 'theater' ? $('map') : $('ground-map');
+  const node = svg.querySelector(`.sym[data-kind="${state.pinned.kind}"][data-id="${CSS.escape(state.pinned.id)}"]`);
+  const valid = ['area', 'zone'].includes(state.pinned.kind) ? (state.pinned.kind === 'area') === (state.map === 'theater') : Boolean(node);
+  if (!valid) return hideTooltip();
+  showTooltip(state.pinned.kind, state.pinned.id, null, node, true);
+}
+
+function switchMap(map) {
+  if (state.map === map) return;
+  state.map = map;
+  state.pinned = null;
+  hideTooltip();
+  renderCartouche();
+  clampView(map);
+  applyView(map);
+}
+
+// Select a formation from the sidebar: switch to its map, center on it, and pin details.
+function focusFormation(kind, id) {
+  switchMap(kind === 'ground' ? 'ground' : 'theater');
+  const svg = kind === 'ground' ? $('ground-map') : $('map');
+  const node = svg.querySelector(`.sym[data-kind="${kind}"][data-id="${CSS.escape(id)}"]`);
+  const matrix = node?.getScreenCTM();
+  if (matrix) {
+    const box = node.getBBox();
+    const screen = new DOMPoint(box.x + box.width / 2, box.y + box.height / 2).matrixTransform(matrix);
+    const point = svgPoint(svg, screen.x, screen.y);
+    centerOn(state.map, point.x, point.y);
+  }
+  requestAnimationFrame(() => select(kind, id, null, svg.querySelector(`.sym[data-kind="${kind}"][data-id="${CSS.escape(id)}"]`)));
+}
+
+// ── Orders ──────────────────────────────────────────────────────────────────
+function ownUnits(domain, kind) {
+  return Object.values(state.game.units).filter((unit) => unit.side === state.side && Number(unit.strength || 0) > .05 && (!domain || unit.domain === domain) && (!kind || unit.kind === kind));
+}
+const ownGroundUnits = () => Object.values(state.game.ground_units || {}).filter((unit) => unit.side === state.side && unit.strength > .05);
+const redReserves = () => Object.values(state.game.ground_units || {}).filter((unit) => unit.side === 'RED' && unit.reserve_strength > .05);
+
+function actionAvailable(id) {
+  const inventory = state.game.munitions[state.side] || {};
+  if (id === 'missile_strike') return Object.keys(WEAPON_META[state.side]).some((weapon) => inventory[weapon] > 0);
+  if (id === 'air_mission' || id === 'rebase') return ownUnits('air').length > 0;
+  if (id === 'naval_move' || id === 'naval_mission') return ownUnits('naval').length > 0;
+  if (id === 'submarine_mission') return ownUnits('submarine').length > 0;
+  if (id === 'amphibious_lift') return state.side === 'RED' && ownUnits('naval', 'amphibious').length > 0 && redReserves().length > 0;
+  return ownGroundUnits().length > 0;
+}
+
+function renderActionSelect() {
+  if (!actionAvailable(state.action)) state.action = ACTIONS.find((action) => actionAvailable(action.id))?.id || state.action;
+  const groups = [...new Set(ACTIONS.map((action) => action.group))];
+  $('action-type').innerHTML = groups.map((group) => `<optgroup label="${group}">${ACTIONS.filter((action) => action.group === group).map((action) => {
+    const available = actionAvailable(action.id);
+    return `<option value="${action.id}"${available ? '' : ' disabled'}${action.id === state.action ? ' selected' : ''}>${action.label}${available ? '' : ' — none available'}</option>`;
+  }).join('')}</optgroup>`).join('');
+}
+
+const currentAction = () => $('action-type').value || state.action;
+function optionList(items, value = 'id', label = 'name') { return items.map((item) => `<option value="${escapeMarkup(item[value])}">${escapeMarkup(item[label])}</option>`).join(''); }
 function selectField(label, id, options) { return `<label>${label}<select id="${id}">${options}</select></label>`; }
 function numberField(label, id, value, min, max, step = 1) { return `<label>${label}<input id="${id}" type="number" value="${value}" min="${min}" max="${max}" step="${step}"></label>`; }
 function weaponOptions(side, role = null, platform = 'any') {
@@ -383,16 +773,15 @@ function weaponOptions(side, role = null, platform = 'any') {
 }
 
 function renderForm() {
-  if (!state.game) return;
-  const type = $('action-type').value;
-  const side = $('side-select').value;
+  const type = currentAction();
+  const side = state.side;
   const regions = Object.entries(state.game.regions).map(([id, data]) => ({ id, name: data.name }));
   let html = '';
   if (type === 'missile_strike') {
     const targets = [...Object.values(state.game.bases), ...Object.values(state.game.units).filter((unit) => unit.domain === 'naval')].filter((item) => item.side !== side && Number(item.strength ?? 1) > .05);
-    html = selectField('Located target (submarines excluded)', 'field-target', optionList(targets)) + selectField('Weapon', 'field-weapon', weaponOptions(side)) + numberField('Rounds allocated', 'field-amount', 6, 1, 100);
+    html = selectField('Target (located bases and surface groups)', 'field-target', optionList(targets)) + selectField('Weapon', 'field-weapon', weaponOptions(side)) + numberField('Rounds', 'field-amount', 6, 1, 100);
   } else if (type === 'air_mission') {
-    html = selectField('Formation', 'field-unit', optionList(ownUnits('air'))) + selectField('Mission', 'field-mission', '<option value="cap">Air superiority / CAP</option><option value="strike_base">Strike air base</option><option value="maritime_strike">Maritime strike</option><option value="ground_support">Ground support</option><option value="interdiction">Ground interdiction</option><option value="asw">ASW search</option><option value="reserve">Reserve</option>') + selectField('Target operational area', 'field-target', optionList(regions)) + selectField('Strike weapon (strike missions only)', 'field-weapon', weaponOptions(side)) + numberField('Strike rounds', 'field-amount', 4, 1, 40);
+    html = selectField('Formation', 'field-unit', optionList(ownUnits('air'))) + selectField('Mission', 'field-mission', '<option value="cap">Air superiority / CAP</option><option value="strike_base">Strike air base</option><option value="maritime_strike">Maritime strike</option><option value="ground_support">Ground support</option><option value="interdiction">Ground interdiction</option><option value="asw">ASW search</option><option value="reserve">Reserve</option>') + selectField('Target area', 'field-target', optionList(regions)) + selectField('Strike weapon', 'field-weapon', weaponOptions(side)) + numberField('Strike rounds', 'field-amount', 4, 1, 40);
   } else if (type === 'rebase') {
     const bases = Object.values(state.game.bases).filter((base) => base.side === side && base.kind !== 'naval_base');
     html = selectField('Formation', 'field-unit', optionList(ownUnits('air'))) + selectField('Destination base', 'field-base', optionList(bases));
@@ -403,45 +792,35 @@ function renderForm() {
   } else if (type === 'submarine_mission') {
     html = selectField('Submarine squadron', 'field-unit', optionList(ownUnits('submarine'))) + selectField('Mission', 'field-mission', '<option value="hunt_shipping">Hunt surface shipping</option><option value="hunt_submarines">Hunt submarines</option><option value="barrier">Undersea barrier</option><option value="rearm">Rearm at home port</option><option value="reserve">Remain covert / reserve</option>') + selectField('Patrol area', 'field-target', optionList(regions));
   } else if (type === 'amphibious_lift') {
-    const reserves = Object.values(state.game.ground_units || {}).filter((unit) => unit.side === 'RED' && unit.reserve_strength > .05);
     const beaches = Object.entries(state.game.ground_hexes || {}).filter(([, hex]) => hex.beach || hex.port).map(([id, hex]) => ({ id, name: hex.name }));
-    html = selectField('Amphibious group', 'field-unit', optionList(ownUnits('naval', 'amphibious'))) + selectField('Ground formation', 'field-ground-unit', optionList(reserves)) + selectField('Landing hex', 'field-ground-target', optionList(beaches)) + selectField('Insertion method', 'field-insertion', '<option value="amphibious">Amphibious landing</option><option value="air_assault">Air assault</option><option value="airborne">Airborne</option><option value="captured_port">Captured port</option>') + numberField('Lift committed (thousand tons)', 'field-amount', 5, .5, 30, .5);
+    html = selectField('Amphibious group', 'field-unit', optionList(ownUnits('naval', 'amphibious'))) + selectField('Ground formation', 'field-ground-unit', optionList(redReserves())) + selectField('Landing area', 'field-ground-target', optionList(beaches)) + selectField('Insertion method', 'field-insertion', '<option value="amphibious">Amphibious landing</option><option value="air_assault">Air assault</option><option value="airborne">Airborne</option><option value="captured_port">Captured port</option>') + numberField('Lift committed (thousand tons)', 'field-amount', 5, .5, 30, .5);
   } else if (type === 'ground_order') {
-    const formations = Object.values(state.game.ground_units || {}).filter((unit) => unit.side === side && unit.strength > .05);
     const hexes = Object.entries(state.game.ground_hexes || {}).map(([id, hex]) => ({ id, name: hex.name }));
-    html = selectField('Ground formation', 'field-unit', optionList(formations)) + selectField('Mission', 'field-mission', '<option value="defend">Defend current hex</option><option value="attack">Attack / advance</option><option value="move">Move</option><option value="reserve">Reserve</option>') + selectField('Target 30 km hex', 'field-target', optionList(hexes));
+    html = selectField('Ground formation', 'field-unit', optionList(ownGroundUnits())) + selectField('Mission', 'field-mission', '<option value="defend">Defend current area</option><option value="attack">Attack / advance</option><option value="move">Move</option><option value="reserve">Reserve</option>') + selectField('Target area', 'field-target', optionList(hexes));
   } else if (type === 'ground_attack') {
-    html = numberField('Intensity', 'field-intensity', .5, .25, 1, .25);
+    html = numberField('Intensity (0.25–1)', 'field-intensity', .5, .25, 1, .25);
   }
   $('dynamic-fields').innerHTML = html;
 
   if (type === 'missile_strike') {
-    const targetSelect = $('field-target');
-    const weaponSelect = $('field-weapon');
-    const refreshWeapons = () => {
-      const role = state.game.bases[targetSelect?.value] ? 'land' : 'naval';
-      if (weaponSelect) weaponSelect.innerHTML = weaponOptions(side, role);
-    };
-    targetSelect?.addEventListener('change', refreshWeapons);
-    refreshWeapons();
+    const refresh = () => { const weapon = $('field-weapon'); if (weapon) weapon.innerHTML = weaponOptions(side, state.game.bases[$('field-target')?.value] ? 'land' : 'naval'); };
+    $('field-target')?.addEventListener('change', refresh);
+    refresh();
   }
-
   if (type === 'air_mission') {
-    const missionSelect = $('field-mission');
-    const weaponSelect = $('field-weapon');
-    const refreshWeapons = () => {
-      if (!weaponSelect) return;
-      if (missionSelect?.value === 'strike_base') weaponSelect.innerHTML = weaponOptions(side, 'land', 'air');
-      else if (missionSelect?.value === 'maritime_strike') weaponSelect.innerHTML = weaponOptions(side, 'naval', 'air');
-      else weaponSelect.innerHTML = '<option value="">Not used for this mission</option>';
+    const refresh = () => {
+      const weapon = $('field-weapon');
+      if (!weapon) return;
+      const mission = $('field-mission')?.value;
+      weapon.innerHTML = mission === 'strike_base' ? weaponOptions(side, 'land', 'air') : mission === 'maritime_strike' ? weaponOptions(side, 'naval', 'air') : '<option value="">Not used for this mission</option>';
     };
-    missionSelect?.addEventListener('change', refreshWeapons);
-    refreshWeapons();
+    $('field-mission')?.addEventListener('change', refresh);
+    refresh();
   }
 }
 
 function buildOrder() {
-  const type = $('action-type').value;
+  const type = currentAction();
   const value = (id) => $(id)?.value;
   if (type === 'missile_strike') return { type, target_id: value('field-target'), weapon: value('field-weapon'), amount: Number(value('field-amount')) };
   if (type === 'air_mission') {
@@ -458,222 +837,81 @@ function buildOrder() {
 }
 
 function describeOrder(order) {
-  const names = { missile_strike: 'Missile strike', air_mission: 'Air mission', rebase: 'Rebase', naval_move: 'Naval movement', naval_mission: 'Surface mission', submarine_mission: 'Submarine mission', amphibious_lift: 'Amphibious lift', ground_order: 'Ground order', ground_attack: 'Ground operations' };
   const unit = state.game.units[order.unit_id]?.name || state.game.ground_units?.[order.unit_id]?.name || order.unit_id || '';
-  const target = state.game.regions[order.target]?.name || state.game.bases[order.target]?.name || state.game.units[order.target_id]?.name || state.game.bases[order.target_id]?.name || order.target || order.target_id || '';
+  const target = state.game.ground_hexes?.[order.target]?.name || state.game.regions[order.target]?.name || state.game.bases[order.target]?.name || state.game.units[order.target_id]?.name || state.game.bases[order.target_id]?.name || order.target || order.target_id || '';
   const ground = state.game.ground_units?.[order.ground_unit_id]?.name || '';
-  const groundTarget = state.game.ground_hexes?.[order.target]?.name || '';
-  return `${unit}${ground ? ` + ${ground}` : ''}${unit && (target || groundTarget) ? ' → ' : ''}${groundTarget || target}${order.mission ? ` · ${order.mission}` : ''}${order.weapon ? ` · ${order.weapon}` : ''}${order.insertion ? ` · ${order.insertion}` : ''}${order.amount ? ` · ${order.amount}` : ''}${order.intensity ? ` · ${order.intensity}` : ''}`;
+  const weapon = order.weapon ? WEAPON_META[state.side][order.weapon]?.[0] || order.weapon : '';
+  const parts = [
+    `${unit}${ground ? ` + ${ground}` : ''}${unit && target ? ' → ' : ''}${target}`,
+    order.mission && humanize(order.mission),
+    weapon && `${weapon}${order.amount ? ` × ${order.amount}` : ''}`,
+    order.insertion && humanize(order.insertion),
+    order.type === 'amphibious_lift' && order.amount && `${order.amount}k tons`,
+    order.intensity && `intensity ${order.intensity}`,
+  ];
+  return parts.filter(Boolean).join(' · ');
 }
 
 function renderOrders() {
-  $('order-count').textContent = `${state.orders.length} queued`;
-  $('orders-list').innerHTML = state.orders.length ? state.orders.map((order, index) => `<div class="order-item"><strong>${order.type.replaceAll('_', ' ')}</strong><br>${describeOrder(order)} <button class="remove-order" data-index="${index}" aria-label="Remove order">×</button></div>`).join('') : '<div class="empty">No orders queued.</div>';
-  document.querySelectorAll('.remove-order').forEach((button) => button.onclick = () => { state.orders.splice(Number(button.dataset.index), 1); renderOrders(); });
+  $('order-count').textContent = state.orders.length;
+  $('orders-list').innerHTML = state.orders.length
+    ? state.orders.map((order, index) => `<div class="order-item"><span class="seq">${index + 1}</span><div><strong>${escapeMarkup(actionLabel(order.type))}</strong><small>${escapeMarkup(describeOrder(order))}</small></div><button class="remove-order" data-index="${index}" aria-label="Remove order" type="button">×</button></div>`).join('')
+    : '<div class="empty">No orders yet. Unordered formations keep their current mission.</div>';
+  document.querySelectorAll('.remove-order').forEach((button) => { button.onclick = () => { state.orders.splice(Number(button.dataset.index), 1); renderOrders(); }; });
 }
 
-function renderFormations() {
-  const units = Object.values(state.game.units).filter((unit) => state.filter === 'ALL' || unit.side === state.filter);
-  $('formations').innerHTML = units.map((unit) => {
-    const strength = Number(unit.strength);
-    const hidden = unit.strength == null || !Number.isFinite(strength);
-    const pct = hidden ? 35 : Math.max(0, Math.min(100, strength / unit.max_strength * 100));
-    const selected = state.selectedUnit === unit.id ? ' selected' : '';
-    return `<article class="formation ${unit.side.toLowerCase()}${selected}" data-formation-id="${escapeMarkup(unit.id)}"><header><div class="formation-title">${miniFormationIcon(unit)}<h3>${escapeMarkup(unit.name)}</h3></div><span class="side ${unit.side}">${unit.side} · ${SIDE_META[unit.side].short}</span></header><p>${unit.kind.replaceAll('_', ' ')} · ${state.game.regions[unit.region]?.name}</p><div class="strength-line"><i style="width:${pct}%"></i></div><small>${hidden ? 'Strength unknown' : `${strength.toFixed(1)} / ${unit.max_strength.toFixed(1)}`} · readiness ${hidden ? 'unknown' : `${(unit.readiness * 100).toFixed(0)}%`}</small></article>`;
-  }).join('');
+function renderStockpile() {
+  const inventory = state.game.munitions[state.side];
+  const peak = state.peakMunitions?.[state.side] || {};
+  $('weapon-stockpile').innerHTML = `<h3>Magazines · ${escapeMarkup(SIDE_META[state.side].short)}</h3>${Object.entries(WEAPON_META[state.side]).map(([id, meta]) => {
+    const count = Number(inventory[id] || 0);
+    const max = Math.max(count, peak[id] || 0);
+    return `<div class="stock-row"><span title="${escapeMarkup(meta[0])}">${escapeMarkup(meta[0])}</span><div class="stock-bar"><i style="width:${pct(count, max)}%"></i></div><em>${count.toFixed(0)}</em></div>`;
+  }).join('')}`;
+}
+
+// ── Forces & log ────────────────────────────────────────────────────────────
+function renderForces() {
+  const game = state.game;
+  const sides = state.filter === 'ALL' ? ['BLUE', 'RED'] : [state.filter];
+  const row = (kind, unit, dimension, location, strength, max) => {
+    const selected = state.selected?.kind === kind && state.selected.id === unit.id ? ' selected' : '';
+    const known = strength != null && Number.isFinite(Number(strength));
+    const depleted = known && Number(strength) <= .05 ? ' depleted' : '';
+    return `<button type="button" class="formation${selected}${depleted}" data-kind="${kind}" data-id="${escapeMarkup(unit.id)}">${miniSymbol(unit.side, dimension, unit.kind, null, { echelon: dimension === 'land' })}<span><b>${escapeMarkup(unit.name)}</b><small>${escapeMarkup(location)}</small></span><span class="str">${known ? formatNumber(strength, 1) : '?'}<i><b style="width:${known ? pct(strength, max) : 0}%"></b></i></span></button>`;
+  };
+  const groups = [];
+  sides.forEach((side) => {
+    const units = Object.values(game.units).filter((unit) => unit.side === side);
+    [['air', 'Air'], ['naval', 'Surface'], ['submarine', 'Subsurface']].forEach(([domain, label]) => {
+      const list = units.filter((unit) => unit.domain === domain);
+      if (list.length) groups.push(`<div class="force-group"><h3>${SIDE_META[side].short} · ${label}</h3>${list.map((unit) => row('unit', unit, unitDimension(unit), `${game.regions[unit.region]?.name || 'Unlocated'}${unit.base_id && game.bases[unit.base_id] ? ` · ${game.bases[unit.base_id].name}` : ''}`, unit.strength, unit.max_strength)).join('')}</div>`);
+    });
+    const ground = Object.values(game.ground_units || {}).filter((unit) => unit.side === side && (unit.strength > .05 || unit.reserve_strength > .05));
+    if (ground.length) groups.push(`<div class="force-group"><h3>${SIDE_META[side].short} · Ground</h3>${ground.map((unit) => (unit.strength > .05
+      ? row('ground', unit, 'land', game.ground_hexes[unit.hex_id]?.name || unit.hex_id, unit.strength, unit.max_strength)
+      : row('ground', unit, 'land', 'Reserve · awaiting lift', unit.reserve_strength, unit.max_strength))).join('')}</div>`);
+  });
+  $('formations').innerHTML = groups.join('');
+  $('formations').querySelectorAll('.formation').forEach((button) => button.addEventListener('click', () => focusFormation(button.dataset.kind, button.dataset.id)));
+}
+
+function replaySide(event) {
+  const side = event.data?.side || (/^BLUE\b/.test(event.message) ? 'BLUE' : /^RED\b/.test(event.message) ? 'RED' : null);
+  return side ? side.toLowerCase() : 'neutral';
 }
 
 function renderEvents() {
   const events = [...state.game.events].reverse();
-  $('event-log').innerHTML = events.length ? events.map((event) => `<div class="event"><time>T${event.turn}</time><b>${escapeMarkup(event.phase)}</b><span>${escapeMarkup(event.message)}</span></div>`).join('') : '<div class="empty">No adjudication events yet.</div>';
+  let lastTurn = null;
+  $('event-log').innerHTML = events.length ? events.map((event) => {
+    const header = event.turn !== lastTurn ? `<div class="log-turn">Turn ${escapeMarkup(event.turn)}</div>` : '';
+    lastTurn = event.turn;
+    return `${header}<div class="event side-${replaySide(event)}"><b>${escapeMarkup(humanize(event.phase))}</b><span>${escapeMarkup(event.message)}</span></div>`;
+  }).join('') : '<div class="empty">No adjudication events yet. Resolve a turn to begin.</div>';
 }
 
-function showError(error) { $('error-box').textContent = error.message || String(error); $('error-box').hidden = false; }
-function clearError() { $('error-box').hidden = true; }
-
-$('action-type').addEventListener('change', renderForm);
-$('side-select').addEventListener('change', async () => { state.orders = []; stopTurnReplay(); state.game = await api(`/api/state?observer=${$('side-select').value}`); state.replayEvents = latestTurnEvents(state.game.events); render(); });
-$('order-form').addEventListener('submit', (event) => { event.preventDefault(); clearError(); try { const order = buildOrder(); if (!order.unit_id && ['air_mission','rebase','naval_move','naval_mission','submarine_mission','amphibious_lift','ground_order'].includes(order.type)) throw new Error('No eligible formation is available.'); state.orders.push(order); renderOrders(); } catch (error) { showError(error); } });
-$('clear-orders').addEventListener('click', () => { state.orders = []; renderOrders(); });
-$('resolve-turn').addEventListener('click', async () => { clearError(); try { const previousCount = state.game.events.length; state.game = await api('/api/turn', { method: 'POST', body: JSON.stringify({ side: $('side-select').value, orders: state.orders }) }); state.orders = []; render(); setReplayEvents(state.game.events.slice(previousCount), true); } catch (error) { showError(error); } });
-$('agent-turn').addEventListener('click', async () => { clearError(); try { const previousCount = state.game.events.length; state.game = await api('/api/agent-turn', { method: 'POST', body: '{}' }); state.orders = []; render(); setReplayEvents(state.game.events.slice(previousCount), true); } catch (error) { showError(error); } });
-$('autoplay').addEventListener('click', async () => { clearError(); try { const previousCount = state.game.events.length; state.game = await api('/api/autoplay', { method: 'POST', body: JSON.stringify({ turns: 20 }) }); state.orders = []; render(); setReplayEvents(latestTurnEvents(state.game.events.slice(previousCount)), true); } catch (error) { showError(error); } });
-$('new-game').addEventListener('click', async () => { const seed = Number(prompt('Random seed for reproducible adjudication:', '7')); if (!Number.isFinite(seed)) return; stopTurnReplay(); state.game = await api('/api/new-game', { method: 'POST', body: JSON.stringify({ seed }) }); state.orders = []; state.replayEvents = []; render(); });
-$('replay-turn').addEventListener('click', playTurnReplay);
-$('replay-skip').addEventListener('click', stopTurnReplay);
-document.querySelectorAll('.tab').forEach((tab) => tab.addEventListener('click', () => { document.querySelectorAll('.tab').forEach((item) => item.classList.remove('active')); tab.classList.add('active'); state.filter = tab.dataset.filter; renderFormations(); }));
-$('map-tooltip').addEventListener('click', (event) => {
-  if (event.target.closest('.tooltip-close')) {
-    event.stopPropagation();
-    state.pinnedMapItem = null;
-    $('map').querySelectorAll('.map-base.selected').forEach((item) => item.classList.remove('selected'));
-    hideMapTooltip();
-  }
-});
-document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && !$('map-tooltip').hidden) {
-    state.pinnedMapItem = null;
-    $('map').querySelectorAll('.map-base.selected').forEach((item) => item.classList.remove('selected'));
-    hideMapTooltip();
-  }
-});
-
-renderSymbolKey();
-load().catch(showError);
-function humanize(value) {
-  return String(value ?? 'unknown').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function formatNumber(value, digits = 0) {
-  return Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : 'Unknown';
-}
-
-function tooltipIcon(kind, item) {
-  const symbol = kind === 'base' ? (item.kind === 'naval_base' ? navalBaseGlyph() : baseGlyph()) : `<g class="symbol-glyph">${formationGlyph(item.kind)}</g>`;
-  return `<svg class="tooltip-symbol side-${item.side.toLowerCase()}" viewBox="-23 -23 46 46" aria-hidden="true">${kind === 'unit' ? formationFrame(item.side) : ''}${symbol}</svg>`;
-}
-
-function tooltipStat(label, value, detail = '') {
-  return `<div class="tooltip-stat"><span>${escapeMarkup(label)}</span><strong>${escapeMarkup(value)}</strong>${detail ? `<small>${escapeMarkup(detail)}</small>` : ''}</div>`;
-}
-
-function unitTooltip(unit) {
-  const region = state.game.regions[unit.region]?.name || unit.region;
-  const base = unit.base_id ? state.game.bases[unit.base_id] : null;
-  const strengthKnown = unit.strength != null && Number.isFinite(Number(unit.strength));
-  const readinessKnown = unit.readiness != null && Number.isFinite(Number(unit.readiness));
-  const strengthPct = strengthKnown && Number(unit.max_strength) > 0 ? Math.max(0, Math.min(100, Number(unit.strength) / Number(unit.max_strength) * 100)) : 0;
-  const target = state.game.regions[unit.target]?.name || state.game.bases[unit.target]?.name || unit.target;
-  return `<div class="tooltip-accent side-${unit.side.toLowerCase()}"></div>
-    <div class="tooltip-header">
-      ${tooltipIcon('unit', unit)}
-      <div class="tooltip-title"><span>${escapeMarkup(humanize(unit.domain))} formation · ${escapeMarkup(formationCode(unit))}</span><strong>${escapeMarkup(unit.name)}</strong><small>${escapeMarkup(SIDE_META[unit.side].title)}</small></div>
-      <button class="tooltip-close" type="button" aria-label="Close pinned details">×</button>
-    </div>
-    <div class="tooltip-location"><span>LOC</span>${escapeMarkup(region)}${base ? ` · ${escapeMarkup(base.name)}` : ''}</div>
-    <div class="tooltip-stats">
-      ${tooltipStat('Strength', strengthKnown ? `${formatNumber(unit.strength, 1)} / ${formatNumber(unit.max_strength, 1)}` : 'Unknown', strengthKnown ? `${strengthPct.toFixed(0)}% combat power` : 'Contact not identified')}
-      ${tooltipStat('Readiness', readinessKnown ? `${(Number(unit.readiness) * 100).toFixed(0)}%` : 'Unknown')}
-      ${tooltipStat('Mission', humanize(unit.mission))}
-    </div>
-    <div class="tooltip-meter ${strengthKnown ? '' : 'unknown'}"><i style="width:${strengthKnown ? strengthPct : 35}%"></i></div>
-    ${target ? `<div class="tooltip-footer"><span>TARGET</span>${escapeMarkup(target)}</div>` : ''}
-    ${unit.kind === 'amphibious' ? `<div class="tooltip-footer"><span>LIFT</span>${formatNumber(unit.capacity, 1)} points per turn</div>` : ''}
-    ${unit.counter_scale ? `<div class="tooltip-footer"><span>COUNTER SCALE</span>${escapeMarkup(unit.counter_scale)}</div>` : ''}
-    ${unit.contact_state ? `<div class="tooltip-footer"><span>CONTACT</span>${escapeMarkup(unit.contact_state)} · ${(Number(unit.contact_confidence || 0) * 100).toFixed(0)}% confidence</div>` : ''}
-    ${unit.weapons && Object.keys(unit.weapons).length ? `<div class="tooltip-footer"><span>MAGAZINES</span>${Object.entries(unit.weapons).map(([name, amount]) => `${escapeMarkup(humanize(name))} ${formatNumber(amount, 0)}`).join(' · ')}</div>` : ''}
-    <div class="tooltip-hint">Click to pin · Esc to close</div>`;
-}
-
-function baseTooltip(base) {
-  const region = state.game.regions[base.region]?.name || base.region;
-  const assigned = Object.values(state.game.units).filter((unit) => unit.base_id === base.id && unitIsActive(unit));
-  const effectiveness = Math.max(.1, 1 - Number(base.damage || 0));
-  const latestUpdate = [...state.game.events].reverse().find((event) => event.data?.target === base.id && ['MISSILES', 'AIR', 'REPAIR'].includes(event.phase));
-  return `<div class="tooltip-accent side-${base.side.toLowerCase()}"></div>
-    <div class="tooltip-header">
-      ${tooltipIcon('base', base)}
-      <div class="tooltip-title"><span>${base.kind === 'naval_base' ? 'Naval base · NB' : 'Airbase · AB'}</span><strong>${escapeMarkup(base.name)}</strong><small>${escapeMarkup(SIDE_META[base.side].title)}</small></div>
-      <button class="tooltip-close" type="button" aria-label="Close pinned details">×</button>
-    </div>
-    <div class="tooltip-location"><span>LOC</span>${escapeMarkup(region)}</div>
-    <div class="tooltip-stats">
-      ${tooltipStat('Operational', `${(effectiveness * 100).toFixed(0)}%`, `${(Number(base.damage || 0) * 100).toFixed(0)}% damage`)}
-      ${tooltipStat('Capacity', base.kind === 'naval_base' ? `${base.port_capacity || 0} groups` : `${assigned.length} / ${base.capacity}`, base.kind === 'naval_base' ? 'port capacity' : 'formations assigned')}
-      ${tooltipStat('Defense', `SAM ${formatNumber(base.sam, 1)}`, `hardening ${formatNumber(base.hardening, 1)}`)}
-    </div>
-    <div class="tooltip-meter"><i style="width:${effectiveness * 100}%"></i></div>
-    <div class="tooltip-footer"><span>HOSTED</span>${assigned.length ? assigned.map((unit) => escapeMarkup(unit.name)).join(' · ') : 'No active formations assigned'}</div>
-    ${latestUpdate ? `<div class="tooltip-footer"><span>LATEST</span>${escapeMarkup(latestUpdate.message)}</div>` : ''}
-    <div class="tooltip-hint">Click to pin · Esc to close</div>`;
-}
-
-function mapItem(symbol) {
-  const kind = symbol.dataset.mapKind;
-  const id = symbol.dataset.mapId;
-  const item = kind === 'base' ? state.game.bases[id] : state.game.units[id];
-  return item ? { kind, id, item } : null;
-}
-
-function positionMapTooltip(symbol, event) {
-  const stage = $('map-stage');
-  const tooltip = $('map-tooltip');
-  const stageRect = stage.getBoundingClientRect();
-  const symbolRect = symbol.getBoundingClientRect();
-  const pointerX = Number.isFinite(event?.clientX) ? event.clientX : symbolRect.right;
-  const pointerY = Number.isFinite(event?.clientY) ? event.clientY : symbolRect.top + symbolRect.height / 2;
-  const gap = 14;
-  let left = pointerX - stageRect.left + gap;
-  let top = pointerY - stageRect.top - tooltip.offsetHeight / 2;
-  if (left + tooltip.offsetWidth > stageRect.width - 10) left = pointerX - stageRect.left - tooltip.offsetWidth - gap;
-  left = Math.max(10, Math.min(stageRect.width - tooltip.offsetWidth - 10, left));
-  top = Math.max(10, Math.min(stageRect.height - tooltip.offsetHeight - 10, top));
-  tooltip.style.left = `${left}px`;
-  tooltip.style.top = `${top}px`;
-}
-
-function showMapTooltip(symbol, event, pinned = false) {
-  const entry = mapItem(symbol);
-  if (!entry) return;
-  const tooltip = $('map-tooltip');
-  tooltip.innerHTML = entry.kind === 'base' ? baseTooltip(entry.item) : unitTooltip(entry.item);
-  tooltip.hidden = false;
-  tooltip.classList.toggle('is-pinned', pinned);
-  tooltip.dataset.kind = entry.kind;
-  tooltip.dataset.id = entry.id;
-  positionMapTooltip(symbol, event);
-}
-
-function hideMapTooltip(clearPin = false) {
-  if (clearPin) state.pinnedMapItem = null;
-  const tooltip = $('map-tooltip');
-  if (!tooltip) return;
-  tooltip.hidden = true;
-  tooltip.classList.remove('is-pinned');
-  delete tooltip.dataset.kind;
-  delete tooltip.dataset.id;
-}
-
-function restorePinnedTooltip() {
-  if (!state.pinnedMapItem) return hideMapTooltip();
-  const selector = `[data-map-kind="${state.pinnedMapItem.kind}"][data-map-id="${CSS.escape(state.pinnedMapItem.id)}"]`;
-  const symbol = $('map').querySelector(selector);
-  if (symbol) showMapTooltip(symbol, null, true);
-}
-
-function selectMapItem(symbol, event) {
-  const entry = mapItem(symbol);
-  if (!entry) return;
-  state.pinnedMapItem = { kind: entry.kind, id: entry.id };
-  $('map').querySelectorAll('.map-unit.selected, .map-base.selected').forEach((item) => item.classList.remove('selected'));
-  symbol.classList.add('selected');
-  showMapTooltip(symbol, event, true);
-  if (entry.kind === 'unit') {
-    state.selectedUnit = entry.id;
-    renderFormations();
-    document.querySelector(`[data-formation-id="${CSS.escape(entry.id)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
-}
-
-function attachMapInteractions(svg) {
-  svg.querySelectorAll('[data-map-kind][data-map-id]').forEach((symbol) => {
-    symbol.addEventListener('pointerenter', (event) => showMapTooltip(symbol, event));
-    symbol.addEventListener('pointermove', (event) => showMapTooltip(symbol, event));
-    symbol.addEventListener('pointerleave', restorePinnedTooltip);
-    symbol.addEventListener('focus', () => showMapTooltip(symbol));
-    symbol.addEventListener('blur', restorePinnedTooltip);
-    symbol.addEventListener('click', (event) => { event.stopPropagation(); selectMapItem(symbol, event); });
-    symbol.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectMapItem(symbol); }
-    });
-  });
-  svg.addEventListener('click', () => {
-    state.pinnedMapItem = null;
-    svg.querySelectorAll('.map-base.selected').forEach((item) => item.classList.remove('selected'));
-    hideMapTooltip();
-  });
-}
-
+// ── Turn replay ─────────────────────────────────────────────────────────────
 const replayDelay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 function latestTurnEvents(events = []) {
@@ -685,10 +923,9 @@ function latestTurnEvents(events = []) {
 function updateReplayButton() {
   if (!state.replayEvents.length && state.game?.events?.length) state.replayEvents = latestTurnEvents(state.game.events);
   const button = $('replay-turn');
-  if (!button) return;
   button.hidden = !state.replayEvents.length;
   button.disabled = state.replayRunning;
-  button.textContent = state.replayEvents.length ? `Replay turn ${state.replayEvents[0].turn}` : 'Replay latest turn';
+  button.textContent = state.replayEvents.length ? `Replay turn ${state.replayEvents[0].turn}` : 'Replay turn';
 }
 
 function setReplayEvents(events, autoplay = false) {
@@ -704,36 +941,34 @@ function inferEventRegion(event) {
   if (data.to_region && state.game.regions[data.to_region]) return data.to_region;
   const target = state.game.bases[data.target] || state.game.units[data.target];
   if (target?.region) return target.region;
-  const namedRegion = Object.entries(state.game.regions).find(([, region]) => event.message.includes(region.name));
-  if (namedRegion) return namedRegion[0];
-  if (['GROUND', 'LIFT', 'ASSESSMENT', 'VICTORY'].includes(event.phase)) return 'taiwan';
-  return 'taiwan';
-}
-
-function replaySide(event) {
-  const side = event.data?.side || (/^BLUE\b/.test(event.message) ? 'BLUE' : /^RED\b/.test(event.message) ? 'RED' : null);
-  return side ? side.toLowerCase() : 'neutral';
+  const named = Object.entries(state.game.regions).find(([, region]) => event.message.includes(region.name));
+  return named ? named[0] : 'taiwan';
 }
 
 function replayOverlayMarkup(event) {
   const data = event.data || {};
-  const regionId = inferEventRegion(event);
-  const point = state.game.regions[regionId] || state.game.regions.taiwan;
-  const from = data.from_region && state.game.regions[data.from_region];
-  const to = data.to_region && state.game.regions[data.to_region];
-  const label = escapeMarkup(humanize(event.phase).toUpperCase());
+  const areas = state.geo.theater.areas;
+  const base = state.game.bases[data.target] && state.geo.theater.bases[data.target];
+  const point = base ? base.at : (areas[inferEventRegion(event)] || areas.taiwan).anchor;
+  const from = data.from_region && areas[data.from_region]?.anchor;
+  const to = data.to_region && areas[data.to_region]?.anchor;
+  const mark = ([x, y]) => `<circle class="replay-impact" cx="${x}" cy="${y}" r="16"/><circle class="replay-core" cx="${x}" cy="${y}" r="5"/>`;
   if (from && to && data.from_region !== data.to_region) {
-    return `<path class="replay-route" d="M${from.x} ${from.y} L${to.x} ${to.y}"/><circle class="replay-impact" cx="${to.x}" cy="${to.y}" r="12"/><circle class="replay-core" cx="${to.x}" cy="${to.y}" r="5"/><text class="replay-label" x="${to.x}" y="${to.y - 20}">${label}</text>`;
+    const [x0, y0] = from;
+    const [x1, y1] = to;
+    const bend = `${(x0 + x1) / 2 - (y1 - y0) * .18} ${(y0 + y1) / 2 + (x1 - x0) * .18}`;
+    return `<path class="replay-route" d="M${x0} ${y0}Q${bend} ${x1} ${y1}"/>${mark(to)}`;
   }
-  return `<circle class="replay-impact" cx="${point.x}" cy="${point.y}" r="12"/><circle class="replay-core" cx="${point.x}" cy="${point.y}" r="5"/><text class="replay-label" x="${point.x}" y="${point.y - 20}">${label}</text>`;
+  return mark(point);
 }
 
 function renderReplayFrame(event, index, total) {
   const overlay = $('event-overlay');
-  if (!overlay) return;
-  overlay.setAttribute('class', `replay-overlay side-${replaySide(event)} phase-${event.phase.toLowerCase().replaceAll('_', '-')}`);
-  overlay.innerHTML = replayOverlayMarkup(event);
-  $('replay-kicker').textContent = `TURN ${event.turn} · EVENT ${index + 1} OF ${total}`;
+  if (overlay) {
+    overlay.setAttribute('class', `replay-overlay side-${replaySide(event)}`);
+    overlay.innerHTML = replayOverlayMarkup(event);
+  }
+  $('replay-kicker').textContent = `Turn ${event.turn} · event ${index + 1} of ${total}`;
   $('replay-phase').textContent = humanize(event.phase);
   $('replay-message').textContent = event.message;
   $('replay-progress').innerHTML = Array.from({ length: total }, (_, step) => `<i class="${step <= index ? 'complete' : ''}"></i>`).join('');
@@ -743,32 +978,110 @@ async function playTurnReplay() {
   if (!state.replayEvents.length || state.replayRunning) return;
   state.replayRunning = true;
   const run = ++state.replayRun;
-  const replay = $('turn-replay');
-  replay.hidden = false;
-  hideMapTooltip();
+  switchMap('theater');
+  $('turn-replay').hidden = false;
+  hideTooltip();
   updateReplayButton();
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   for (let index = 0; index < state.replayEvents.length; index += 1) {
     if (run !== state.replayRun) return;
     renderReplayFrame(state.replayEvents[index], index, state.replayEvents.length);
-    await replayDelay(reducedMotion ? 180 : 900);
+    await replayDelay(reducedMotion ? 300 : 1100);
   }
   if (run !== state.replayRun) return;
-  await replayDelay(reducedMotion ? 80 : 450);
+  await replayDelay(400);
   if (run !== state.replayRun) return;
-  state.replayRunning = false;
-  replay.hidden = true;
-  const overlay = $('event-overlay');
-  if (overlay) overlay.innerHTML = '';
-  updateReplayButton();
+  stopTurnReplay();
 }
 
 function stopTurnReplay() {
   state.replayRun += 1;
   state.replayRunning = false;
-  const replay = $('turn-replay');
-  if (replay) replay.hidden = true;
+  $('turn-replay').hidden = true;
   const overlay = $('event-overlay');
   if (overlay) overlay.innerHTML = '';
   updateReplayButton();
 }
+
+// ── Events ──────────────────────────────────────────────────────────────────
+function showError(error) { $('error-box').textContent = error.message || String(error); $('error-box').hidden = false; setTab('orders'); }
+function clearError() { $('error-box').hidden = true; }
+
+function setTab(tab) {
+  state.tab = tab;
+  document.querySelectorAll('.tabs [data-tab]').forEach((button) => button.setAttribute('aria-selected', String(button.dataset.tab === tab)));
+  document.querySelectorAll('.tab-panel').forEach((panel) => { panel.hidden = panel.dataset.panel !== tab; });
+}
+
+async function advance(request, pickReplay = (events) => events) {
+  clearError();
+  try {
+    const previousCount = state.game.events.length;
+    state.game = await request();
+    state.orders = [];
+    render();
+    setReplayEvents(pickReplay(state.game.events.slice(previousCount)), true);
+  } catch (error) { showError(error); }
+}
+
+$('action-type').addEventListener('change', () => { state.action = $('action-type').value; renderForm(); });
+$('side-toggle').addEventListener('click', async (event) => {
+  const side = event.target.closest('[data-side]')?.dataset.side;
+  if (!side || side === state.side) return;
+  state.side = side; state.orders = []; state.pinned = null; state.selected = null; stopTurnReplay();
+  try { state.game = await api(`/api/state?observer=${state.side}`); state.replayEvents = latestTurnEvents(state.game.events); render(); } catch (error) { showError(error); }
+});
+$('map-switch').addEventListener('click', (event) => { const map = event.target.closest('[data-map]')?.dataset.map; if (map) switchMap(map); });
+document.querySelector('.zoom-controls').addEventListener('click', (event) => {
+  const action = event.target.closest('[data-zoom]')?.dataset.zoom;
+  if (!action) return;
+  const { view, full } = views[state.map];
+  if (action === 'reset') { fitView(state.map, views[state.map].home || full); return; }
+  zoomTo(state.map, view.x + view.w / 2, view.y + view.h / 2, action === 'in' ? 1.4 : 1 / 1.4);
+});
+document.querySelectorAll('.tabs [data-tab]').forEach((button) => button.addEventListener('click', () => setTab(button.dataset.tab)));
+document.querySelectorAll('.chip[data-filter]').forEach((chip) => chip.addEventListener('click', () => { document.querySelectorAll('.chip[data-filter]').forEach((item) => item.classList.toggle('active', item === chip)); state.filter = chip.dataset.filter; renderForces(); }));
+$('order-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  clearError();
+  try {
+    const order = buildOrder();
+    if (!order.unit_id && ['air_mission', 'rebase', 'naval_move', 'naval_mission', 'submarine_mission', 'amphibious_lift', 'ground_order'].includes(order.type)) throw new Error('No eligible formation is available.');
+    state.orders.push(order);
+    renderOrders();
+  } catch (error) { showError(error); }
+});
+$('clear-orders').addEventListener('click', () => { state.orders = []; renderOrders(); });
+$('resolve-turn').addEventListener('click', () => advance(() => api('/api/turn', { method: 'POST', body: JSON.stringify({ side: state.side, orders: state.orders }) })));
+$('agent-turn').addEventListener('click', () => advance(() => api('/api/agent-turn', { method: 'POST', body: '{}' })));
+$('autoplay').addEventListener('click', () => advance(() => api('/api/autoplay', { method: 'POST', body: JSON.stringify({ turns: 20 }) }), latestTurnEvents));
+$('new-game').addEventListener('click', async () => {
+  const input = prompt('Random seed for reproducible adjudication:', '7');
+  if (input === null) return;
+  const seed = Number(input);
+  if (!Number.isFinite(seed)) return;
+  stopTurnReplay();
+  try {
+    state.game = await api('/api/new-game', { method: 'POST', body: JSON.stringify({ seed }) });
+    Object.assign(state, { orders: [], replayEvents: [], peakMunitions: null, pinned: null, selected: null });
+    render();
+  } catch (error) { showError(error); }
+});
+$('replay-turn').addEventListener('click', playTurnReplay);
+$('replay-skip').addEventListener('click', stopTurnReplay);
+$('map-tooltip').addEventListener('click', (event) => {
+  if (!event.target.closest('.tooltip-close')) return;
+  state.pinned = null; state.selected = null;
+  document.querySelectorAll('.sym.selected').forEach((node) => node.classList.remove('selected'));
+  hideTooltip();
+  renderForces();
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape' || $('map-tooltip').hidden) return;
+  state.pinned = null; state.selected = null;
+  document.querySelectorAll('.sym.selected').forEach((node) => node.classList.remove('selected'));
+  hideTooltip();
+});
+window.addEventListener('resize', () => Object.keys(views).forEach((key) => { clampView(key); applyView(key); }));
+
+load().catch(showError);

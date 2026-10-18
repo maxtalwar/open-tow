@@ -13,3 +13,6 @@ Thumbs.db
 .idea/
 .vscode/
 
+
+# Geography build tool (dev-only)
+tools/geography/node_modules/

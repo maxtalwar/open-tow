@@ -1,0 +1,106 @@
+{
+  "description": "Display geography for the Taiwan ground map. Coastal ground areas are unions of real county boundaries (Natural Earth admin-1) with the mountain interior removed; the Central Mountains area is the terrain above the threshold below, derived from elevation data. The engine's adjacency graph in the scenario file remains authoritative.",
+  "bounds": {
+    "west": 117.6,
+    "east": 123.4,
+    "south": 21.75,
+    "north": 25.75
+  },
+  "mountain_threshold_m": 900,
+  "assembly": { "at": [118.95, 24.98], "label": "PLA embarkation area" },
+  "zones": {
+    "north_beach": {
+      "counties": ["Taoyuan"],
+      "label": [121.06, 25.09],
+      "anchor": [121.21, 24.91],
+      "align": "end"
+    },
+    "taipei": {
+      "counties": ["Taipei City", "New Taipei City", "Keelung City"],
+      "label": [121.93, 25.2],
+      "anchor": [121.58, 25.02],
+      "align": "start"
+    },
+    "west_beach": {
+      "counties": ["Hsinchu", "Hsinchu City", "Miaoli"],
+      "label": [120.62, 24.7],
+      "anchor": [120.86, 24.6],
+      "align": "end"
+    },
+    "taichung": {
+      "counties": ["Taichung City", "Changhua", "Nantou"],
+      "label": [120.32, 24.14],
+      "anchor": [120.6, 24.04],
+      "align": "end"
+    },
+    "south_beach": {
+      "counties": ["Yunlin", "Chiayi", "Chiayi City", "Tainan City"],
+      "label": [120.0, 23.42],
+      "anchor": [120.32, 23.3],
+      "align": "end"
+    },
+    "kaohsiung": {
+      "counties": ["Kaohsiung City", "Pingtung"],
+      "label": [120.17, 22.56],
+      "anchor": [120.5, 22.64],
+      "align": "end"
+    },
+    "hualien": {
+      "counties": ["Yilan", "Hualien"],
+      "label": [121.78, 24.02],
+      "anchor": [121.5, 23.72],
+      "align": "start"
+    },
+    "east_coast": {
+      "counties": ["Taitung"],
+      "label": [121.5, 22.96],
+      "anchor": [121.24, 23.02],
+      "align": "start"
+    },
+    "central_mountains": {
+      "mountain": true,
+      "counties": ["Taoyuan", "Taipei City", "New Taipei City", "Keelung City", "Hsinchu", "Hsinchu City", "Miaoli", "Taichung City", "Changhua", "Nantou", "Yunlin", "Chiayi", "Chiayi City", "Tainan City", "Kaohsiung City", "Pingtung", "Yilan", "Hualien", "Taitung"],
+      "label": [121.12, 24.22],
+      "anchor": [121.0, 23.58]
+    }
+  },
+  "places": [
+    { "name": "Taipei", "at": [121.56, 25.03], "capital": true },
+    { "name": "Keelung", "at": [121.74, 25.13] },
+    { "name": "Taoyuan", "at": [121.3, 24.99] },
+    { "name": "Hsinchu", "at": [120.97, 24.8] },
+    { "name": "Taichung", "at": [120.67, 24.15] },
+    { "name": "Chiayi", "at": [120.45, 23.48] },
+    { "name": "Tainan", "at": [120.21, 22.99] },
+    { "name": "Kaohsiung", "at": [120.3, 22.63] },
+    { "name": "Hualien", "at": [121.6, 23.98] },
+    { "name": "Taitung", "at": [121.14, 22.76] },
+    { "name": "Yilan", "at": [121.75, 24.76] },
+    { "name": "Fuzhou", "at": [119.3, 26.07] },
+    { "name": "Pingtan", "at": [119.79, 25.5] },
+    { "name": "Putian", "at": [119.0, 25.43] },
+    { "name": "Quanzhou", "at": [118.68, 24.87] },
+    { "name": "Xiamen", "at": [118.09, 24.48] }
+  ],
+  "ports": [
+    { "name": "Keelung", "at": [121.75, 25.15] },
+    { "name": "Taipei Port", "at": [121.37, 25.16] },
+    { "name": "Taichung Port", "at": [120.51, 24.29] },
+    { "name": "Kaohsiung Port", "at": [120.28, 22.6] },
+    { "name": "Hualien Port", "at": [121.63, 23.98] }
+  ],
+  "peaks": [
+    { "name": "Yushan", "elevation": 3952, "at": [120.957, 23.47] },
+    { "name": "Xueshan", "elevation": 3886, "at": [121.233, 24.383] }
+  ],
+  "labels": [
+    { "text": "CHINA", "at": [118.25, 25.55], "kind": "country" },
+    { "text": "TAIWAN STRAIT", "at": [119.35, 24.0], "kind": "water", "rotate": -60 },
+    { "text": "PHILIPPINE SEA", "at": [122.75, 23.2], "kind": "water", "rotate": 70 },
+    { "text": "Penghu", "at": [119.3, 23.62], "kind": "island", "minor": true },
+    { "text": "Kinmen", "at": [118.38, 24.33], "kind": "island", "minor": true },
+    { "text": "Yonaguni (JPN)", "at": [123.0, 24.33], "kind": "island", "minor": true },
+    { "text": "Green I.", "at": [121.62, 22.66], "kind": "island", "minor": true },
+    { "text": "Orchid I.", "at": [121.7, 22.04], "kind": "island", "minor": true }
+  ]
+}

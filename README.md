@@ -4,9 +4,9 @@
 
 ## Demo
 
-![Open TOW Western Pacific operational map showing coalition and PLA formations](docs/assets/open-tow-map.png)
+![Open TOW Western Pacific operational map showing coalition and PLA formations, bases, and operational areas](docs/assets/open-tow-map.webp)
 
-*The Western Pacific operational map. Geography is recognizable, but positions and ranges are schematic.*
+*The Western Pacific operational map, drawn from real coastlines, terrain, and base locations. Operational-area boundaries are schematic.*
 
 ## Why this project exists
 

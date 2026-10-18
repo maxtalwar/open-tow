@@ -1,0 +1,14 @@
+{
+  "name": "open-tow-geography",
+  "private": true,
+  "description": "Dev-only build step that turns Natural Earth and Terrain Tiles data into the static map assets in static/geo/.",
+  "type": "module",
+  "scripts": { "build": "node build.mjs" },
+  "devDependencies": {
+    "d3-contour": "4.0.2",
+    "d3-geo": "3.1.1",
+    "pngjs": "7.0.0",
+    "polygon-clipping": "0.15.7",
+    "shapefile": "0.6.6"
+  }
+}
