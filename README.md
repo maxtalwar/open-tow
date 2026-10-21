@@ -4,7 +4,7 @@
 
 ## Demo
 
-![Open TOW Western Pacific operational map showing coalition and PLA formations](docs/assets/open-tow-map.png)
+![Open TOW Western Pacific operational map showing coalition and PLA formations, bases, and operational areas](docs/assets/open-tow-map.webp)
 
 ## Why this project exists
 

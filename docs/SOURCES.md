@@ -16,6 +16,14 @@ The report is the basis for the scenario's time scale, broad map abstraction, ag
 
 These references inform the emphasis on explicit objectives, consistent adjudication, human review, data collection, reproducibility, and limitations.
 
+## Map data
+
+- Coastlines, islands, country boundaries, and Taiwan county boundaries: [Natural Earth](https://www.naturalearthdata.com/) 1:10m vectors (public domain).
+- Elevation and bathymetry: [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (Mapzen "terrarium" encoding, derived from SRTM, GMTED2010, ETOPO1, and other open sources).
+- Base locations use the public coordinates of the named installations. Operational-area boundaries, unit anchor points, and the Taiwan ground-area grouping are schematic display choices recorded in `data/geography/`; the engine's adjacency graph in the scenario file remains authoritative.
+
+The generated assets in `static/geo/` are rebuilt with `tools/geography/build.mjs` (see `tools/geography/README.md`).
+
 ## Not imported
 
 - No CSIS art, map images, card files, or unpublished umpire materials.
